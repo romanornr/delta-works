@@ -5,6 +5,8 @@ import (
 	"github.com/romanornr/delta-works/util"
 	"github.com/thrasher-corp/gocryptotrader/config"
 	"github.com/thrasher-corp/gocryptotrader/engine"
+	gctlog "github.com/thrasher-corp/gocryptotrader/log"
+	"github.com/thrasher-corp/gocryptotrader/signaler"
 	"log"
 )
 
@@ -28,19 +30,33 @@ func main() {
 
 	var settings engine.Settings
 
-	engine, err := engine.NewFromSettings(&settings, nil)
+	engine.Bot, err = engine.NewFromSettings(&settings, nil)
 
-	fmt.Println(engine)
-
-	if err := engine.Start(); err != nil {
+	if err := engine.Bot.Start(); err != nil {
+		errClose := gctlog.CloseLogger()
+		if errClose != nil {
+			log.Printf("Failed to close logger. Error: %s", errClose)
+		}
 		log.Fatalf("Failed to start engine. Error: %s", err)
 	}
 
-	e, err := engine.ExchangeManager.GetExchangeByName("bybit")
+	e, err := engine.Bot.GetExchangeByName("bybit")
 	if err != nil {
 		log.Fatalf("Failed to get exchange. Error: %s", err)
 	}
 
 	fmt.Println(e.GetName()) // print bybit
 
+	go waitForInterrupt(settings.Shutdown)
+	<-settings.Shutdown
+	engine.Bot.Stop()
+}
+
+// waitForInterrupt waits for an interrupt signal and sends a signal on the
+// waiter channel to indicate that the program should shut down.
+func waitForInterrupt(waiter chan struct{}) {
+	interrupt := signaler.WaitForInterrupt()
+	gctlog.Infof(gctlog.Global, "Captured %v, shutdown requested.\n", interrupt)
+	// Send a signal on the waiter channel to indicate that the program should shut down.
+	waiter <- struct{}{}
 }
