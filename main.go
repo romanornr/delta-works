@@ -1,13 +1,16 @@
 package main
 
 import (
-	"fmt"
 	"github.com/romanornr/delta-works/util"
-	"github.com/thrasher-corp/gocryptotrader/config"
 	"github.com/thrasher-corp/gocryptotrader/engine"
 	gctlog "github.com/thrasher-corp/gocryptotrader/log"
 	"github.com/thrasher-corp/gocryptotrader/signaler"
 	"log"
+)
+
+const (
+	// DefaultConfigPath is the default configuration file path
+	DefaultConfigPath = "config.json"
 )
 
 func init() {
@@ -34,53 +37,36 @@ func NewBotApplication(settings *engine.Settings) (*BotApplication, error) {
 	return &BotApplication{Bot: bot}, nil
 }
 
-func main() {
-
-	str := util.ConfigFile("config.json")
-	fmt.Printf("Config file: %s\n", str)
-
-	configFile, err := config.GetAndMigrateDefaultPath(str)
-	if err != nil {
-		log.Fatalf("Failed to get config file. Error: %s", err)
-	}
-
-	fmt.Printf("Filepath: %s\n", configFile)
-
-	var botconfig config.Config
-	err = botconfig.LoadConfig(configFile, true)
-	if err != nil {
-		log.Fatalf("Failed to load config file. Error: %s", err)
-	}
-
-	var settings engine.Settings
-
-	engine.Bot, err = engine.NewFromSettings(&settings, nil)
-
-	if err := engine.Bot.Start(); err != nil {
+func (b *BotApplication) Start() error {
+	b.Bot.Settings.PrintLoadedSettings()
+	if err := b.Bot.Start(); err != nil {
 		errClose := gctlog.CloseLogger()
 		if errClose != nil {
 			log.Printf("Failed to close logger. Error: %s", errClose)
 		}
 		log.Fatalf("Failed to start engine. Error: %s", err)
+		return err
 	}
-
-	e, err := engine.Bot.GetExchangeByName("bybit")
-	if err != nil {
-		log.Fatalf("Failed to get exchange. Error: %s", err)
-	}
-
-	fmt.Println(e.GetName()) // print bybit
-
-	go waitForInterrupt(settings.Shutdown)
-	<-settings.Shutdown
-	engine.Bot.Stop()
+	return nil
 }
 
-// waitForInterrupt waits for an interrupt signal and sends a signal on the
-// waiter channel to indicate that the program should shut down.
-func waitForInterrupt(waiter chan struct{}) {
-	interrupt := signaler.WaitForInterrupt()
-	gctlog.Infof(gctlog.Global, "Captured %v, shutdown requested.\n", interrupt)
-	// Send a signal on the waiter channel to indicate that the program should shut down.
-	waiter <- struct{}{}
+func main() {
+	// Load the configuration file
+	configPath := util.ConfigFile(DefaultConfigPath)
+
+	app, err := NewBotApplication(&engine.Settings{ConfigFile: configPath})
+	if err != nil {
+		log.Fatalf("Failed to create bot application. Error: %s", err)
+	}
+
+	if err := app.Start(); err != nil {
+		log.Fatalf("Failed to start bot application. Error: %s", err)
+	}
+
+	defer app.Stop()
+	go signaler.WaitForInterrupt()
+}
+
+func (b *BotApplication) Stop() {
+	b.Bot.Stop()
 }
