@@ -10,6 +10,30 @@ import (
 	"log"
 )
 
+func init() {
+	initLogger()
+}
+
+func initLogger() {
+	var err error
+	if err == gctlog.SetupGlobalLogger("Delta-Works", true) {
+		log.Fatalf("Failed to setup Global Logger. Error: %s", err)
+	}
+	gctlog.Debugf(gctlog.Global, "Logger initialised.")
+}
+
+type BotApplication struct {
+	Bot *engine.Engine
+}
+
+func NewBotApplication(settings *engine.Settings) (*BotApplication, error) {
+	bot, err := engine.NewFromSettings(settings, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &BotApplication{Bot: bot}, nil
+}
+
 func main() {
 
 	str := util.ConfigFile("config.json")
