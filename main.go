@@ -24,10 +24,12 @@ func main() {
 	app, err := NewBotApplication(&engine.Settings{ConfigFile: configFile})
 	if err != nil {
 		log.Fatalf("Failed to create bot application. Error: %s", err)
+		return // Graceful exit on failure to create bot application
 	}
 
 	if err := app.Start(); err != nil {
 		log.Fatalf("Failed to start bot application. Error: %s", err)
+		return // Graceful exit on failure to start bot application
 	}
 
 	defer app.Stop()
@@ -47,6 +49,7 @@ type BotApplication struct {
 	Bot *engine.Engine
 }
 
+// NewBotApplication creates a new bot application
 func NewBotApplication(settings *engine.Settings) (*BotApplication, error) {
 	bot, err := engine.NewFromSettings(settings, nil)
 	if err != nil {
@@ -55,9 +58,11 @@ func NewBotApplication(settings *engine.Settings) (*BotApplication, error) {
 	return &BotApplication{Bot: bot}, nil
 }
 
+// Start starts the bot application
 func (b *BotApplication) Start() error {
 	b.Bot.Settings.PrintLoadedSettings()
 	if err := b.Bot.Start(); err != nil {
+		// Attempt to close the logger gracefully
 		if errClose := gctlog.CloseLogger(); errClose != nil {
 			log.Fatalf("Failed to close logger. Error: %s", errClose)
 		}
@@ -66,6 +71,7 @@ func (b *BotApplication) Start() error {
 	return nil
 }
 
+// Stop stops the bot application
 func (b *BotApplication) Stop() {
 	b.Bot.Stop()
 }
