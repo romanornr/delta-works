@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	delta "github.com/romanornr/delta-works/internal/engine/core"
 	"github.com/thrasher-corp/gocryptotrader/common"
 	"github.com/thrasher-corp/gocryptotrader/config"
 	"github.com/thrasher-corp/gocryptotrader/core"
@@ -125,6 +126,8 @@ func main() {
 	var err error
 	settings.CheckParamInteraction = true
 
+	gctscript.Setup()
+
 	// collect flags
 	flagSet := make(map[string]bool)
 	// Stores the set flags
@@ -135,27 +138,26 @@ func main() {
 	}
 
 	settings.Shutdown = make(chan struct{})
-	engine.Bot, err = engine.NewFromSettings(&settings, flagSet)
-	if engine.Bot == nil || err != nil {
+
+	d := delta.GetInstance()
+	err = d.Initialize(&settings, flagSet)
+	if err != nil {
 		log.Fatalf("Unable to initialise bot engine. Error: %s\n", err)
 	}
-	config.SetConfig(engine.Bot.Config)
 
-	gctscript.Setup()
+	config.SetConfig(d.Engine.Config)
 
-	engine.Bot.Settings.PrintLoadedSettings()
-
-	if err = engine.Bot.Start(); err != nil {
+	if err = d.StartEngine(); err != nil {
 		errClose := gctlog.CloseLogger()
 		if errClose != nil {
 			log.Printf("Unable to close logger. Error: %s\n", errClose)
 		}
-		log.Fatalf("Unable to start bot engine. Error: %s\n", err)
+		log.Fatalf("Unable to start bot engine")
 	}
 
 	go waitForInterrupt(settings.Shutdown)
 	<-settings.Shutdown
-	engine.Bot.Stop()
+	d.Engine.Stop()
 }
 
 func waitForInterrupt(waiter chan<- struct{}) {
@@ -163,158 +165,3 @@ func waitForInterrupt(waiter chan<- struct{}) {
 	gctlog.Infof(gctlog.Global, "Captured %v, shutdown requested.\n", interrupt)
 	waiter <- struct{}{}
 }
-
-//func main() {
-//	if err := initLogger(); err != nil {
-//		log.Fatalf("Failed to initialise logger. Error: %s", err)
-//	}
-//
-//	// Load the configuration file
-//	configFile := util.ConfigFile(DefaultConfigPath)
-//
-//	app, err := NewBotApplication(&engine.Settings{ConfigFile: configFile})
-//	if err != nil {
-//		log.Fatalf("Failed to create bot application. Error: %s", err)
-//		return // Graceful exit on failure to create bot application
-//	}
-//
-//	if app.Bot == nil || err != nil {
-//		log.Printf("Unable to create bot application. Error: %s\n", err)
-//	}
-//
-//	if err := app.Start(); err != nil {
-//		log.Fatalf("Failed to start bot application. Error: %s", err)
-//		return // Graceful exit on failure to start bot application
-//	}
-//
-//	//settings.Shutdown = make(chan struct{})
-//	//engine.Bot, err = engine.NewFromSettings(&settings, flagSet)
-//	//if engine.Bot == nil || err != nil {
-//	//	log.Fatalf("Unable to initialise bot engine. Error: %s\n", err)
-//	//}
-//
-//	gctscript.Setup()
-//
-//	app.Bot.Settings.PrintLoadedSettings()
-//
-//	if err = app.Bot.Start(); err != nil {
-//		errClose := gctlog.CloseLogger()
-//		if errClose != nil {
-//			log.Printf("Unable to close logger. Error: %s\n", errClose)
-//		}
-//		log.Fatalf("Unable to start bot engine. Error: %s\n", err)
-//	}
-//
-//	//go app.Run(context.Background())
-//
-//	//defer app.Stop()
-//	go signaler.WaitForInterrupt()
-//}
-//
-//func initLogger() error {
-//	var err error
-//	if err == gctlog.SetupGlobalLogger("Delta-Works", true) {
-//		return err
-//	}
-//	gctlog.Debugf(gctlog.Global, "Logger initialised.")
-//	return nil
-//}
-//
-//type BotApplication struct {
-//	Bot *engine.Engine
-//}
-//
-//// NewBotApplication creates a new bot application
-//func NewBotApplication(settings *engine.Settings) (*BotApplication, error) {
-//	bot, err := engine.NewFromSettings(settings, nil)
-//	if err != nil {
-//		return nil, err
-//	}
-//	return &BotApplication{Bot: bot}, nil
-//}
-//
-//// Start starts the bot application
-//func (b *BotApplication) Start() error {
-//	b.Bot.Settings.PrintLoadedSettings()
-//	if err := b.Bot.Start(); err != nil {
-//		// Attempt to close the logger gracefully
-//		if errClose := gctlog.CloseLogger(); errClose != nil {
-//			log.Fatalf("Failed to close logger. Error: %s", errClose)
-//		}
-//		return err
-//	}
-//	return nil
-//}
-//
-//// Stop stops the bot application
-//func (b *BotApplication) Stop() {
-//	b.Bot.Stop()
-//}
-//
-//func (b *BotApplication) Run(ctx context.Context) {
-//	//var wg sync.WaitGroup
-//	//exchanges, err := b.Bot.ExchangeManager.GetExchanges()
-//	//if err != nil {
-//	//	log.Fatalf("Failed to get exchanges. Error: %s", err)
-//	//}
-//
-//	gctscript.Setup()
-//
-//	//for _, x := range exchanges {
-//	//	wg.Add(1)
-//	//
-//	//	go func(x exchange.IBotExchange) {
-//	//		defer wg.Done()
-//	//
-//	//		err := Loop(ctx, b, x)
-//	//
-//	//		panic(err)
-//	//	}(x)
-//	//}
-//	//wg.Wait()
-//
-//	go signaler.WaitForInterrupt()
-//	engine.Bot.Stop()
-//}
-//
-//func Loop(ctx context.Context, b *BotApplication, e exchange.IBotExchange) error {
-//	if !e.IsWebsocketEnabled() {
-//		log.Fatalf("Websocket not enabled for exchange: %s", e.GetName())
-//		<-ctx.Done()
-//		return nil
-//	}
-//	return stream.Stream(ctx, e)
-//}
-
-//
-//func (b *BotApplication) Sub() {
-//	e, err := b.Bot.GetExchangeByName("bybit")
-//	if err != nil {
-//		fmt.Printf("Failed to get exchange. Error: %s", err)
-//	}
-//
-//	logrus.Infof("Exchange: %s", e.GetName())
-//	if e.SupportsWebsocket() {
-//		wsInterface, err := e.GetWebsocket()
-//		if err != nil {
-//			fmt.Printf("Failed to get websocket. Error: %s", err)
-//			return
-//		}
-//		subscribeToTicker(wsInterface)
-//	}
-//
-//}
-//
-//func subscribeToTicker(wsInterface *stream.Websocket) {
-//	subscriptions := []subscription.Subscription{}
-//	subscriptions = append(subscriptions, subscription.Subscription{
-//		Channel: subscription.TickerChannel,
-//	})
-//
-//	err := wsInterface.SubscribeToChannels(subscriptions)
-//	if err != nil {
-//		fmt.Printf("Failed to subscribe to ticker. Error: %s", err)
-//	}
-//
-//	wsInterface.GetSubscription()
-//}
