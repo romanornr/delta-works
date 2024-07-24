@@ -1,6 +1,7 @@
 package delta
 
 import (
+	"fmt"
 	"github.com/thrasher-corp/gocryptotrader/engine"
 	gctlog "github.com/thrasher-corp/gocryptotrader/log"
 	"sync"
@@ -37,7 +38,7 @@ func (c *Core) StartEngine() error {
 		if errClose != nil {
 			return errClose
 		}
-		return errClose
+		return fmt.Errorf("engine failed to start: %v", err)
 	}
 	return nil
 }

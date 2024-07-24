@@ -26,6 +26,7 @@ import (
 const (
 	// DefaultConfigPath is the default configuration file path
 	DefaultConfigPath = "config.json"
+	botName           = "DeltaWorks"
 )
 
 func main() {
@@ -49,7 +50,7 @@ func main() {
 	flag.BoolVar(&settings.EnableWebsocketRPC, "websocketrpc", true, "enables the websocket RPC server")
 	flag.BoolVar(&settings.EnableDeprecatedRPC, "deprecatedrpc", true, "enables the deprecated RPC server")
 	flag.BoolVar(&settings.EnableCommsRelayer, "enablecommsrelayer", true, "enables available communications relayer")
-	flag.BoolVar(&settings.Verbose, "verbose", false, "increases logging verbosity for GoCryptoTrader")
+	flag.BoolVar(&settings.Verbose, "verbose", true, "increases logging verbosity for GoCryptoTrader") // set to false for production
 	flag.BoolVar(&settings.EnableFuturesTracking, "enablefuturestracking", true, "tracks futures orders PNL is supported by the exchange")
 	flag.BoolVar(&settings.EnableExchangeSyncManager, "syncmanager", false, "enables to exchange sync manager")
 	flag.BoolVar(&settings.EnableWebsocketRoutine, "websocketroutine", true, "enables the websocket routine for all loaded exchanges")
@@ -123,7 +124,6 @@ func main() {
 	fmt.Print(core.Banner)
 	fmt.Println(core.Version(false))
 
-	var err error
 	settings.CheckParamInteraction = true
 
 	gctscript.Setup()
@@ -140,19 +140,27 @@ func main() {
 	settings.Shutdown = make(chan struct{})
 
 	d := delta.GetInstance()
-	err = d.Initialize(&settings, flagSet)
+	err := d.Initialize(&settings, flagSet)
 	if err != nil {
 		log.Fatalf("Unable to initialise bot engine. Error: %s\n", err)
 	}
 
+	if err = d.StartEngine(); err != nil {
+		log.Fatalf("Unable to start %s engine. Error: %s\n", botName, err)
+	}
+
 	config.SetConfig(d.Engine.Config)
 
-	if err = d.StartEngine(); err != nil {
-		errClose := gctlog.CloseLogger()
-		if errClose != nil {
-			log.Printf("Unable to close logger. Error: %s\n", errClose)
-		}
-		log.Fatalf("Unable to start bot engine")
+	//if err = d.StartEngine(); err != nil {
+	//	errClose := gctlog.CloseLogger()
+	//	if errClose != nil {
+	//		log.Printf("Unable to close logger. Error: %s\n", errClose)
+	//	}
+	//	log.Fatalf("Unable to start bot engine")
+	//}
+
+	if err := d.DisplayHoldings("bybit"); err != nil {
+		log.Fatalf("Unable to display holdings. Error: %s\n", err)
 	}
 
 	go waitForInterrupt(settings.Shutdown)
