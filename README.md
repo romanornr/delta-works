@@ -1,11 +1,28 @@
-# delta-works
-
-
-Format this into readme.md file
-
 # Delta Works
 
-Delta Works is a trading bot to make trades on Bybit, Binance and other exchanges. 
+Delta Works is an order execution system (OEMS) for managing and executing orders across multiple exchanges.
+Algorithmic trading strategies can be implemented and sophisticated order routing and execution logic can be defined.
+
+Built using [GoCryptoTrader](https://github.com/thrasher-corp/gocryptotrader)
+Delta OEMS features including real-time market data, order management, and portfolio tracking.
+
+## Features
+[x] Multi-exchange support
+[ ] Real-time market data
+[ ] Portfolio tracking
+[ ] Order management
+[ ] Algorithmic trading strategies
+[ ] Order routing and execution logic
+[ ] Arbitrage opportunities
+[ ] Twap and Vwap order execution
+[ ] iceberg orders
+[ ] Stop-loss and take-profit orders
+[ ] Backtesting and simulation
+[ ] REST and Websocket API
+[ ] Web-based dashboard
+[ ] Grafana integration
+[ ] Grafana dashboards for market data, order management, and portfolio tracking
+
 Directory structure (WIP):
 
 ```
