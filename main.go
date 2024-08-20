@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	delta "github.com/romanornr/delta-works/internal/engine/core"
@@ -17,7 +18,6 @@ import (
 	gctlog "github.com/thrasher-corp/gocryptotrader/log"
 	"github.com/thrasher-corp/gocryptotrader/portfolio/withdraw"
 	"github.com/thrasher-corp/gocryptotrader/signaler"
-	"log"
 	"os"
 	"runtime"
 	"time"
@@ -121,11 +121,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	fmt.Print(core.Banner)
-	fmt.Println(core.Version(false))
-
 	settings.CheckParamInteraction = true
-
 	gctscript.Setup()
 
 	// collect flags
@@ -138,34 +134,29 @@ func main() {
 	}
 
 	settings.Shutdown = make(chan struct{})
+	// Set bot name
+	fmt.Printf("engine settings main.go: %v\n", settings.DataDir)
+	// print flagset
+	fmt.Printf("flagset main.go: %v\n", flagSet)
 
-	d := delta.GetInstance()
-	err := d.Initialize(&settings, flagSet)
+	var err error
+	settings.Shutdown = make(chan struct{})
+
+	_, err = delta.GetInstance(context.Background(), &settings, flagSet)
 	if err != nil {
-		log.Fatalf("Unable to initialise bot engine. Error: %s\n", err)
+		fmt.Printf("Failed to get instance: %v\n", err)
 	}
 
-	if err = d.StartEngine(); err != nil {
-		log.Fatalf("Unable to start %s engine. Error: %s\n", botName, err)
+	engine.Bot.Settings.PrintLoadedSettings()
+	err = engine.Bot.Start()
+	if err != nil {
+		fmt.Printf("Failed to start bot: %v\n", err)
 	}
-
-	config.SetConfig(d.Engine.Config)
-
-	//if err = d.StartEngine(); err != nil {
-	//	errClose := gctlog.CloseLogger()
-	//	if errClose != nil {
-	//		log.Printf("Unable to close logger. Error: %s\n", errClose)
-	//	}
-	//	log.Fatalf("Unable to start bot engine")
-	//}
-
-	if err := d.DisplayHoldings("bybit"); err != nil {
-		log.Fatalf("Unable to display holdings. Error: %s\n", err)
-	}
+	gctscript.Setup()
 
 	go waitForInterrupt(settings.Shutdown)
 	<-settings.Shutdown
-	d.Engine.Stop()
+	engine.Bot.Stop()
 }
 
 func waitForInterrupt(waiter chan<- struct{}) {

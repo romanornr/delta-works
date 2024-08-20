@@ -1,49 +1,45 @@
 package core
 
 import (
+	"context"
 	"fmt"
+	"github.com/thrasher-corp/gocryptotrader/config"
 	"github.com/thrasher-corp/gocryptotrader/engine"
-	gctlog "github.com/thrasher-corp/gocryptotrader/log"
 	"sync"
 )
 
-// create a singleton instance of gocryptotrader engine
-var instance *Core
-var once sync.Once
+var (
+	instance *Instance
+	once     sync.Once
+)
 
-type Core struct {
-	Engine *engine.Engine
+type Instance struct {
+	Settings *engine.Settings
+	FlagSet  map[string]bool
 }
 
-func GetInstance() *Core {
-	once.Do(func() {
-		instance = &Core{}
-	})
-	return instance
-}
+func GetInstance(ctx context.Context, settings *engine.Settings, flagset map[string]bool) (*Instance, error) {
 
-func (c *Core) Initialize(settings *engine.Settings, flagset map[string]bool) error {
 	var err error
-	c.Engine, err = engine.NewFromSettings(settings, flagset)
-	if engine.Bot == nil || err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (c *Core) StartEngine() error {
-	if err := c.Engine.Start(); err != nil {
-		errClose := gctlog.CloseLogger()
-		if errClose != nil {
-			return errClose
+	once.Do(func() {
+		instance = &Instance{
+			Settings: settings,
+			FlagSet:  flagset,
 		}
-		return fmt.Errorf("engine failed to start: %v", err)
-	}
-	return nil
+
+		err = instance.Initialize(ctx)
+		config.SetConfig(engine.Bot.Config)
+	})
+
+	return instance, err
 }
 
-func (c *Core) StopEngine() error {
-	c.Engine.Stop()
+func (i *Instance) Initialize(ctx context.Context) error {
+	var err error
+
+	engine.Bot, err = engine.NewFromSettings(instance.Settings, instance.FlagSet)
+	if engine.Bot == nil || err != nil {
+		return fmt.Errorf("failed to create engine: %v", err)
+	}
 	return nil
 }
