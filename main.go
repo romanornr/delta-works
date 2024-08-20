@@ -116,6 +116,10 @@ func main() {
 
 	flag.Parse()
 
+	// base context with cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	if *versionFlag {
 		fmt.Print(core.Version(true))
 		os.Exit(0)
@@ -134,33 +138,46 @@ func main() {
 	}
 
 	settings.Shutdown = make(chan struct{})
-	// Set bot name
-	fmt.Printf("engine settings main.go: %v\n", settings.DataDir)
-	// print flagset
 	fmt.Printf("flagset main.go: %v\n", flagSet)
 
-	var err error
+	//var err error
 	settings.Shutdown = make(chan struct{})
 
-	_, err = delta.GetInstance(context.Background(), &settings, flagSet)
+	// Get instance
+	instance, err := delta.GetInstance(ctx, &settings, flagSet)
 	if err != nil {
+		gctlog.Errorf(gctlog.Global, "Failed to get instance: %v\n", err)
 		fmt.Printf("Failed to get instance: %v\n", err)
 	}
 
 	engine.Bot.Settings.PrintLoadedSettings()
-	err = engine.Bot.Start()
-	if err != nil {
-		fmt.Printf("Failed to start bot: %v\n", err)
-	}
-	gctscript.Setup()
 
-	go waitForInterrupt(settings.Shutdown)
+	// start engine
+	err = instance.StartEngine(ctx)
+	if err != nil {
+		gctlog.Errorf(gctlog.Global, "Failed to start engine: %v\n", err)
+		fmt.Printf("Failed to start engine: %v\n", err)
+	}
+
+	go waitForInterrupt(cancel, settings.Shutdown)
+	// wait for interrupt
 	<-settings.Shutdown
-	engine.Bot.Stop()
+
+	shutDownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	err = instance.StopEngine(shutDownCtx)
+	if err != nil {
+		gctlog.Errorf(gctlog.Global, "Failed to stop engine: %v\n", err)
+		fmt.Printf("Failed to stop engine: %v\n", err)
+	}
+
+	gctlog.Infoln(gctlog.Global, "DeltaWorks has been shutdown successfully.\n")
 }
 
-func waitForInterrupt(waiter chan<- struct{}) {
+func waitForInterrupt(cancel context.CancelFunc, waiter chan<- struct{}) {
 	interrupt := signaler.WaitForInterrupt()
 	gctlog.Infof(gctlog.Global, "Captured %v, shutdown requested.\n", interrupt)
+	cancel() // cancel the context to stop the engine and all its routines
 	waiter <- struct{}{}
 }

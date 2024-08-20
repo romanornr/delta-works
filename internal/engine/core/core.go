@@ -38,31 +38,72 @@ func GetInstance(ctx context.Context, settings *engine.Settings, flagset map[str
 }
 
 func (i *Instance) Initialize(ctx context.Context) error {
-	var err error
 
-	engine.Bot, err = engine.NewFromSettings(instance.Settings, instance.FlagSet)
-	if err != nil {
+	errChan := make(chan error, 1)
+	done := make(chan struct{})
+
+	go func() {
+		var err error
+		engine.Bot, err = engine.NewFromSettings(i.Settings, i.FlagSet)
+		if err != nil {
+			errChan <- err
+		} else {
+			close(done)
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("engine initialization cancelled: %v", ctx.Err())
+	case err := <-errChan:
 		return fmt.Errorf("failed to create engine: %v", err)
+	case <-done:
+		if engine.Bot == nil {
+			return fmt.Errorf("engine initialization failed: Bot is nil")
+		}
+		gctlog.Debugln(gctlog.Global, "Engine successfully initialized")
+		return nil
 	}
+}
 
+func (i *Instance) StartEngine(ctx context.Context) error {
 	if engine.Bot == nil {
-		return fmt.Errorf("engine initialization failed: Bot is nil")
+		return fmt.Errorf("engine not initialized")
 	}
 
-	gctlog.Debugln(gctlog.Global, "Engine successfully initialized")
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- engine.Bot.Start()
+	}()
 
-	return nil
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("engine start cancelled: %v", ctx.Err())
+	case err := <-errChan:
+		if err != nil {
+			return fmt.Errorf("failed to start engine: %v", err)
+		}
+		gctlog.Infoln(gctlog.Global, "Engine successfully started")
+		return nil
+	}
 }
 
-func (i *Instance) StartEngine() error {
-	err := engine.Bot.Start()
-	if err != nil {
-		return fmt.Errorf("failed to start engine: %v", err)
+func (i *Instance) StopEngine(ctx context.Context) error {
+	if engine.Bot == nil {
+		return fmt.Errorf("engine not initialized")
 	}
 
-	return nil
-}
+	done := make(chan struct{})
+	go func() {
+		engine.Bot.Stop()
+		close(done)
+	}()
 
-func (i *Instance) StopEngine() {
-	engine.Bot.Stop()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("engine stop canceled: %w", ctx.Err())
+	case <-done:
+		gctlog.Infoln(gctlog.Global, "Engine successfully stopped")
+		return nil
+	}
 }
