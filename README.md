@@ -8,23 +8,54 @@ Delta OEMS features including real-time market data, order management, and portf
 
 ## Features
 [x] Multi-exchange support
+
 [ ] Real-time market data
+
 [ ] Portfolio tracking
+
 [ ] Order management
+
 [ ] Algorithmic trading strategies
+
 [ ] Order routing and execution logic
+
 [ ] Arbitrage opportunities
+
 [ ] Twap and Vwap order execution
+
 [ ] iceberg orders
+
 [ ] Stop-loss and take-profit orders
+
 [ ] Backtesting and simulation
+
 [ ] REST and Websocket API
+
 [ ] Web-based dashboard
+
 [ ] Grafana integration
+
 [ ] Grafana dashboards for market data, order management, and portfolio tracking
 
 Directory structure (WIP):
+```
+deltaworks/
+├── internal/
+│   ├── core/
+│   │   └── core.go  (minimal GoCryptoTrader wrapper)
+│   ├── oems/
+│   │   ├── oems.go  (main OEMS logic)
+│   │   ├── order_manager.go
+│   │   ├── execution_engine.go
+│   │   └── portfolio_manager.go
+│   └── exchange/
+│       └── adapter.go  (GoCryptoTrader exchange adapter)
+└── cmd/
+└── deltaworks/
+└── main.go
+```
 
+old:
 ```
 deltaWorks/
 ├── cmd/
