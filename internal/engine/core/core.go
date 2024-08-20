@@ -53,3 +53,16 @@ func (i *Instance) Initialize(ctx context.Context) error {
 
 	return nil
 }
+
+func (i *Instance) StartEngine() error {
+	err := engine.Bot.Start()
+	if err != nil {
+		return fmt.Errorf("failed to start engine: %v", err)
+	}
+
+	return nil
+}
+
+func (i *Instance) StopEngine() {
+	engine.Bot.Stop()
+}
