@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	delta "github.com/romanornr/delta-works/internal/engine/core"
@@ -116,17 +117,12 @@ func main() {
 
 	flag.Parse()
 
-	// base context with cancellation
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	if *versionFlag {
 		fmt.Print(core.Version(true))
 		os.Exit(0)
 	}
 
 	settings.CheckParamInteraction = true
-	gctscript.Setup()
 
 	// collect flags
 	flagSet := make(map[string]bool)
@@ -137,42 +133,84 @@ func main() {
 		settings.ConfigFile = ""
 	}
 
-	settings.Shutdown = make(chan struct{})
-	fmt.Printf("flagset main.go: %v\n", flagSet)
+	// gctscript setup in go routine
+	go func() {
+		gctscript.Setup()
+	}()
 
-	//var err error
-	settings.Shutdown = make(chan struct{})
+	// base context with cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// Get instance
+	go func() {
+		interrupt := signaler.WaitForInterrupt()
+		gctlog.Infof(gctlog.Global, "Captured %v, shutdown requested.\n", interrupt)
+		cancel() // cancel the context to stop the engine and all its routines
+	}()
+
 	instance, err := delta.GetInstance(ctx, &settings, flagSet)
 	if err != nil {
 		gctlog.Errorf(gctlog.Global, "Failed to get instance: %v\n", err)
-		fmt.Printf("Failed to get instance: %v\n", err)
+		os.Exit(1)
+	}
+
+	err = instance.StartEngine(ctx)
+	if err != nil {
+		gctlog.Errorf(gctlog.Global, "Failed to start engine: %v\n", err)
+		os.Exit(1)
 	}
 
 	engine.Bot.Settings.PrintLoadedSettings()
 
-	// start engine
-	err = instance.StartEngine(ctx)
-	if err != nil {
-		gctlog.Errorf(gctlog.Global, "Failed to start engine: %v\n", err)
-		fmt.Printf("Failed to start engine: %v\n", err)
-	}
+	<-ctx.Done()
+	fmt.Println("Shutdown in progress. This may take up to 30 seconds...")
 
-	go waitForInterrupt(cancel, settings.Shutdown)
-	// wait for interrupt
-	<-settings.Shutdown
-
-	shutDownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	err = instance.StopEngine(shutDownCtx)
-	if err != nil {
-		gctlog.Errorf(gctlog.Global, "Failed to stop engine: %v\n", err)
-		fmt.Printf("Failed to stop engine: %v\n", err)
+	done := make(chan struct{})
+	var stopErr error
+
+	go func() {
+		fmt.Println("Stopping DeltaWorks engine...")
+		stopErr = instance.StopEngine(shutdownCtx)
+		close(done)
+	}()
+
+	// Setup a channel for second interrupt
+	secondInterrupt := make(chan struct{}, 1)
+	go func() {
+		interrupt := signaler.WaitForInterrupt()
+		fmt.Printf("\nSecond interrupt received (%v). Forcing immediate exit...\n", interrupt)
+		gctlog.Infof(gctlog.Global, "Captured %v, second shutdown requested.\n", interrupt)
+		secondInterrupt <- struct{}{}
+	}()
+
+	// Wait for either StopEngine to complete, context to be cancelled, or receive another interrupt
+	select {
+	case <-shutdownCtx.Done():
+		if errors.Is(shutdownCtx.Err(), context.DeadlineExceeded) {
+			gctlog.Errorln(gctlog.Global, "Shutdown timed out, forcing exit")
+		} else {
+			gctlog.Errorln(gctlog.Global, "Shutdown was cancelled, forcing exit")
+		}
+	case <-secondInterrupt:
+		gctlog.Infoln(gctlog.Global, "Second interrupt received, forcing exit")
+		shutdownCancel() // Cancel the shutdown context
+	case <-done:
+		if stopErr != nil {
+			gctlog.Errorf(gctlog.Global, "Error during engine shutdown: %v\n", stopErr)
+		} else {
+			gctlog.Infoln(gctlog.Global, "Engine stopped successfully")
+		}
 	}
 
-	gctlog.Infoln(gctlog.Global, "DeltaWorks has been shutdown successfully.\n")
+	// Wait for a short period to allow for any final cleanup
+	fmt.Println("Performing final cleanup...")
+	time.Sleep(9 * time.Second)
+
+	fmt.Print("DeltaWorks has been shutdown gracefully")
+	gctlog.Infof(gctlog.Global, "DeltaWorks has been shutdown gracefully\n")
 }
 
 func waitForInterrupt(cancel context.CancelFunc, waiter chan<- struct{}) {

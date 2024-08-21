@@ -7,6 +7,7 @@ import (
 	"github.com/thrasher-corp/gocryptotrader/engine"
 	gctlog "github.com/thrasher-corp/gocryptotrader/log"
 	"sync"
+	"time"
 )
 
 var (
@@ -88,12 +89,34 @@ func (i *Instance) StartEngine(ctx context.Context) error {
 	}
 }
 
+//func (i *Instance) StopEngine(ctx context.Context) error {
+//	if engine.Bot == nil {
+//		return fmt.Errorf("engine not initialized")
+//	}
+//
+//	done := make(chan struct{})
+//	go func() {
+//		engine.Bot.Stop()
+//		close(done)
+//	}()
+//
+//	select {
+//	case <-ctx.Done():
+//		return fmt.Errorf("engine stop canceled: %w", ctx.Err())
+//	case <-done:
+//		gctlog.Infoln(gctlog.Global, "Engine successfully stopped")
+//		return nil
+//	}
+//}
+
 func (i *Instance) StopEngine(ctx context.Context) error {
 	if engine.Bot == nil {
 		return fmt.Errorf("engine not initialized")
 	}
 
 	done := make(chan struct{})
+	var err error
+
 	go func() {
 		engine.Bot.Stop()
 		close(done)
@@ -101,9 +124,16 @@ func (i *Instance) StopEngine(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("engine stop canceled: %w", ctx.Err())
+		// Context was cancelled, but we'll still wait a bit for the engine to stop
+		select {
+		case <-done:
+			// Engine stopped before our additional timeout
+		case <-time.After(5 * time.Second):
+			err = fmt.Errorf("engine stop canceled: %w", ctx.Err())
+		}
 	case <-done:
-		gctlog.Infoln(gctlog.Global, "Engine successfully stopped")
-		return nil
+		// Engine stopped normally
 	}
+
+	return err
 }
