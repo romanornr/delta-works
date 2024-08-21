@@ -89,26 +89,6 @@ func (i *Instance) StartEngine(ctx context.Context) error {
 	}
 }
 
-//func (i *Instance) StopEngine(ctx context.Context) error {
-//	if engine.Bot == nil {
-//		return fmt.Errorf("engine not initialized")
-//	}
-//
-//	done := make(chan struct{})
-//	go func() {
-//		engine.Bot.Stop()
-//		close(done)
-//	}()
-//
-//	select {
-//	case <-ctx.Done():
-//		return fmt.Errorf("engine stop canceled: %w", ctx.Err())
-//	case <-done:
-//		gctlog.Infoln(gctlog.Global, "Engine successfully stopped")
-//		return nil
-//	}
-//}
-
 func (i *Instance) StopEngine(ctx context.Context) error {
 	if engine.Bot == nil {
 		return fmt.Errorf("engine not initialized")
