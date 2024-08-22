@@ -12,6 +12,7 @@ import (
 	"github.com/thrasher-corp/gocryptotrader/dispatch"
 	"github.com/thrasher-corp/gocryptotrader/engine"
 	"github.com/thrasher-corp/gocryptotrader/exchanges/alert"
+	"github.com/thrasher-corp/gocryptotrader/exchanges/asset"
 	"github.com/thrasher-corp/gocryptotrader/exchanges/request"
 	"github.com/thrasher-corp/gocryptotrader/exchanges/trade"
 	"github.com/thrasher-corp/gocryptotrader/gctscript"
@@ -160,7 +161,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	engine.Bot.Settings.PrintLoadedSettings()
+	// engine.Bot.Settings.PrintLoadedSettings()
+	h := delta.NewHoldingsManager(instance)
+	if holdingsErr := h.UpdateHoldings(ctx, "bybit", asset.Spot); holdingsErr != nil {
+		gctlog.Errorf(gctlog.Global, "Failed to update holdings: %v\n", holdingsErr)
+	}
+
+	time.Sleep(10 * time.Second)
 
 	<-ctx.Done()
 	fmt.Println("Shutdown in progress. This may take up to 30 seconds...")
