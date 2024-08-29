@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/romanornr/delta-works/internal/models"
 	"github.com/shopspring/decimal"
 	"github.com/thrasher-corp/gocryptotrader/currency"
 	"github.com/thrasher-corp/gocryptotrader/engine"
@@ -11,33 +12,17 @@ import (
 	"time"
 )
 
-type AssetBalance struct {
-	Currency               currency.Code
-	Total                  decimal.Decimal
-	Hold                   decimal.Decimal
-	Free                   decimal.Decimal
-	AvailableWithoutBorrow decimal.Decimal
-	Borrowed               decimal.Decimal
-}
-
-type AccountHoldings struct {
-	ExchangeName string
-	AccountType  asset.Item
-	Balances     map[currency.Code]AssetBalance
-	LastUpdated  time.Time
-}
-
 // HoldingsManager manages account holdings for multiple exchanges and account types
 type HoldingsManager struct {
 	instance *Instance
-	holdings map[string]map[asset.Item]AccountHoldings
+	holdings map[string]map[asset.Item]models.AccountHoldings
 	mu       sync.RWMutex
 }
 
 func NewHoldingsManager(i *Instance) *HoldingsManager {
 	return &HoldingsManager{
 		instance: i,
-		holdings: make(map[string]map[asset.Item]AccountHoldings),
+		holdings: make(map[string]map[asset.Item]models.AccountHoldings),
 	}
 }
 
@@ -56,16 +41,16 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 		return fmt.Errorf("failed to fetch account info for %s %s: %v", exchangeName, accountType, err)
 	}
 
-	holdings := &AccountHoldings{
+	holdings := &models.AccountHoldings{
 		ExchangeName: exchangeName,
 		AccountType:  accountType,
-		Balances:     make(map[currency.Code]AssetBalance),
+		Balances:     make(map[currency.Code]models.AssetBalance),
 		LastUpdated:  time.Now(),
 	}
 
 	for _, account := range acccountInfo.Accounts {
 		for _, balance := range account.Currencies {
-			holdings.Balances[balance.Currency] = AssetBalance{
+			holdings.Balances[balance.Currency] = models.AssetBalance{
 				Currency:               balance.Currency,
 				Total:                  decimal.NewFromFloat(balance.Total),
 				Hold:                   decimal.NewFromFloat(balance.Hold),
@@ -80,7 +65,7 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 	defer h.mu.Unlock()
 
 	if _, exists := h.holdings[exchangeName]; !exists {
-		h.holdings[exchangeName] = make(map[asset.Item]AccountHoldings)
+		h.holdings[exchangeName] = make(map[asset.Item]models.AccountHoldings)
 	}
 
 	h.holdings[exchangeName][accountType] = *holdings

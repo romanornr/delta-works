@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/questdb/go-questdb-client/v3"
 	delta "github.com/romanornr/delta-works/internal/engine/core"
 	"github.com/thrasher-corp/gocryptotrader/common"
 	"github.com/thrasher-corp/gocryptotrader/config"
@@ -167,6 +168,14 @@ func main() {
 		gctlog.Errorf(gctlog.Global, "Failed to update holdings: %v\n", holdingsErr)
 	}
 
+	if err := insertData(); err != nil {
+		gctlog.Errorf(gctlog.Global, "Failed to insert data: %v\n", err)
+		fmt.Printf("Failed to insert data: %v\n", err)
+		// shutdown the engine
+		cancel()
+		os.Exit(1)
+	}
+
 	time.Sleep(10 * time.Second)
 
 	<-ctx.Done()
@@ -218,6 +227,32 @@ func main() {
 
 	fmt.Print("DeltaWorks has been shutdown gracefully")
 	gctlog.Infof(gctlog.Global, "DeltaWorks has been shutdown gracefully\n")
+}
+
+func insertData() error {
+	ctx := context.TODO()
+	sender, err := questdb.LineSenderFromConf(ctx, "http::addr=localhost:9000;")
+	if err != nil {
+		return fmt.Errorf("failed to create new line sender: %w", err)
+	}
+	defer sender.Close(ctx)
+
+	err = sender.
+		Table("holdings").
+		Symbol("exchange", "bybit").
+		Symbol("accountType", "spot").
+		Float64Column("amount", 0.7).
+		At(ctx, time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to insert data: %w", err)
+	}
+
+	err = sender.Flush(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to flush data: %w", err)
+	}
+
+	return nil
 }
 
 func waitForInterrupt(cancel context.CancelFunc, waiter chan<- struct{}) {
