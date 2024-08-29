@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/romanornr/delta-works/internal/models"
+	"github.com/romanornr/delta-works/internal/repository"
 	"github.com/shopspring/decimal"
 	"github.com/thrasher-corp/gocryptotrader/currency"
 	"github.com/thrasher-corp/gocryptotrader/engine"
@@ -15,15 +16,22 @@ import (
 // HoldingsManager manages account holdings for multiple exchanges and account types
 type HoldingsManager struct {
 	instance *Instance
+	repo     *repository.QuestDBRepository
 	holdings map[string]map[asset.Item]models.AccountHoldings
 	mu       sync.RWMutex
 }
 
-func NewHoldingsManager(i *Instance) *HoldingsManager {
+func NewHoldingsManager(i *Instance, questDBConfig string) (*HoldingsManager, error) {
+	repo, err := repository.NewQuestDBRepository(context.Background(), questDBConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create QuestDB repository: %w", err)
+	}
+
 	return &HoldingsManager{
 		instance: i,
+		repo:     repo,
 		holdings: make(map[string]map[asset.Item]models.AccountHoldings),
-	}
+	}, nil
 }
 
 func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName string, accountType asset.Item) error {
@@ -67,11 +75,14 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 	if _, exists := h.holdings[exchangeName]; !exists {
 		h.holdings[exchangeName] = make(map[asset.Item]models.AccountHoldings)
 	}
-
 	h.holdings[exchangeName][accountType] = *holdings
 
+	// Insert holdings into QuestDB
+	if err := h.repo.InsertHoldings(ctx, *holdings); err != nil {
+		return fmt.Errorf("failed to insert holdings into QuestDB: %w", err)
+	}
+
 	fmt.Printf("Updated holdings for %s %s\n", exchangeName, accountType)
-	fmt.Printf("Holdings: %+v\n", holdings)
 
 	return nil
 }

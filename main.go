@@ -5,8 +5,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/questdb/go-questdb-client/v3"
 	delta "github.com/romanornr/delta-works/internal/engine/core"
+	"github.com/romanornr/delta-works/internal/repository"
 	"github.com/thrasher-corp/gocryptotrader/common"
 	"github.com/thrasher-corp/gocryptotrader/config"
 	"github.com/thrasher-corp/gocryptotrader/core"
@@ -21,6 +21,7 @@ import (
 	gctlog "github.com/thrasher-corp/gocryptotrader/log"
 	"github.com/thrasher-corp/gocryptotrader/portfolio/withdraw"
 	"github.com/thrasher-corp/gocryptotrader/signaler"
+	"log"
 	"os"
 	"runtime"
 	"time"
@@ -162,17 +163,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	// engine.Bot.Settings.PrintLoadedSettings()
-	h := delta.NewHoldingsManager(instance)
-	if holdingsErr := h.UpdateHoldings(ctx, "bybit", asset.Spot); holdingsErr != nil {
-		gctlog.Errorf(gctlog.Global, "Failed to update holdings: %v\n", holdingsErr)
+	// initialize QuestDB repository
+	questDBConfig := "http::addr=localhost:9000;"
+	questDBRepo, err := repository.NewQuestDBRepository(ctx, questDBConfig)
+	if err != nil {
+		log.Fatalf("failed to create QuestDB repository: %v", err)
 	}
+	defer questDBRepo.Close(ctx)
 
-	if err := insertData(); err != nil {
-		gctlog.Errorf(gctlog.Global, "Failed to insert data: %v\n", err)
-		fmt.Printf("Failed to insert data: %v\n", err)
-		// shutdown the engine
-		cancel()
+	holdingsManager, err := delta.NewHoldingsManager(instance, questDBConfig)
+	if holdingsErr := holdingsManager.UpdateHoldings(ctx, "bybit", asset.Spot); holdingsErr != nil {
+		gctlog.Errorf(gctlog.Global, "Failed to update holdings: %v\n", holdingsErr)
 		os.Exit(1)
 	}
 
@@ -229,31 +230,31 @@ func main() {
 	gctlog.Infof(gctlog.Global, "DeltaWorks has been shutdown gracefully\n")
 }
 
-func insertData() error {
-	ctx := context.TODO()
-	sender, err := questdb.LineSenderFromConf(ctx, "http::addr=localhost:9000;")
-	if err != nil {
-		return fmt.Errorf("failed to create new line sender: %w", err)
-	}
-	defer sender.Close(ctx)
-
-	err = sender.
-		Table("holdings").
-		Symbol("exchange", "bybit").
-		Symbol("accountType", "spot").
-		Float64Column("amount", 0.7).
-		At(ctx, time.Now())
-	if err != nil {
-		return fmt.Errorf("failed to insert data: %w", err)
-	}
-
-	err = sender.Flush(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to flush data: %w", err)
-	}
-
-	return nil
-}
+//func insertData() error {
+//	ctx := context.TODO()
+//	sender, err := questdb.LineSenderFromConf(ctx, "http::addr=localhost:9000;")
+//	if err != nil {
+//		return fmt.Errorf("failed to create new line sender: %w", err)
+//	}
+//	defer sender.Close(ctx)
+//
+//	err = sender.
+//		Table("holdings").
+//		Symbol("exchange", "bybit").
+//		Symbol("accountType", "spot").
+//		Float64Column("amount", 0.7).
+//		At(ctx, time.Now())
+//	if err != nil {
+//		return fmt.Errorf("failed to insert data: %w", err)
+//	}
+//
+//	err = sender.Flush(ctx)
+//	if err != nil {
+//		return fmt.Errorf("failed to flush data: %w", err)
+//	}
+//
+//	return nil
+//}
 
 func waitForInterrupt(cancel context.CancelFunc, waiter chan<- struct{}) {
 	interrupt := signaler.WaitForInterrupt()
