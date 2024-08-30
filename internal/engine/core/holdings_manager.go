@@ -8,6 +8,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/thrasher-corp/gocryptotrader/currency"
 	"github.com/thrasher-corp/gocryptotrader/engine"
+	exchange "github.com/thrasher-corp/gocryptotrader/exchanges"
 	"github.com/thrasher-corp/gocryptotrader/exchanges/asset"
 	"sync"
 	"time"
@@ -39,12 +40,12 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 		return fmt.Errorf("engine instance not set")
 	}
 
-	exchange, err := engine.Bot.ExchangeManager.GetExchangeByName(exchangeName)
+	exch, err := engine.Bot.ExchangeManager.GetExchangeByName(exchangeName)
 	if err != nil {
 		return fmt.Errorf("exchange %s not found", exchangeName)
 	}
 
-	acccountInfo, err := exchange.FetchAccountInfo(ctx, accountType)
+	accountInfo, err := exch.FetchAccountInfo(ctx, accountType)
 	if err != nil {
 		return fmt.Errorf("failed to fetch account info for %s %s: %v", exchangeName, accountType, err)
 	}
@@ -56,8 +57,17 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 		LastUpdated:  time.Now(),
 	}
 
-	for _, account := range acccountInfo.Accounts {
+	//var totalUSDValue decimal.Decimal
+
+	for _, account := range accountInfo.Accounts {
 		for _, balance := range account.Currencies {
+
+			amount := decimal.NewFromFloat(balance.Total)
+			usdValue, err := h.getUSDValue(ctx, exch, balance.Currency, amount, accountType)
+			if err != nil {
+				fmt.Printf("Failed to get USD value for %s: %v\n", balance.Currency, err)
+			}
+
 			holdings.Balances[balance.Currency] = models.AssetBalance{
 				Currency:               balance.Currency,
 				Total:                  decimal.NewFromFloat(balance.Total),
@@ -65,9 +75,16 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 				Free:                   decimal.NewFromFloat(balance.Free),
 				AvailableWithoutBorrow: decimal.NewFromFloat(balance.AvailableWithoutBorrow),
 				Borrowed:               decimal.NewFromFloat(balance.Borrowed),
+				USDValue:               usdValue,
 			}
+
+			fmt.Printf("USD value for %s: %s\n", balance.Currency, usdValue.String())
+			//os.Exit(1)
+			//totalUSDValue.Add(usdValue)
 		}
 	}
+
+	//holdings.TotalUSDValue = totalUSDValue
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -85,4 +102,49 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 	fmt.Printf("Updated holdings for %s %s\n", exchangeName, accountType)
 
 	return nil
+}
+
+func (h *HoldingsManager) getUSDValue(ctx context.Context, exchange exchange.IBotExchange, c currency.Code, amount decimal.Decimal, accountType asset.Item) (decimal.Decimal, error) {
+
+	if c == currency.USD {
+		return amount, nil
+	}
+
+	//if c.IsFiatCurrency() {
+	//	usdValue, err := currency.ConvertFiat(amount.InexactFloat64(), c, currency.USD)
+	//	if err != nil {
+	//		return decimal.Zero, fmt.Errorf("failed to convert %s to USD: %w", c, err)
+	//	}
+	//	return decimal.NewFromFloat(usdValue), nil
+	//}
+
+	if c.IsStableCurrency() {
+		// Assume 1:1 for stablecoins, TODO fetch actual rates for more accuracy
+		return amount, nil
+	}
+
+	//	if c.IsCryptocurrency() {
+	// create pairs to fetch ticker
+	pairs := []currency.Pair{
+		currency.NewPair(c, currency.USDT),
+		currency.NewPair(c, currency.USDC),
+	}
+
+	for _, pair := range pairs {
+		ticker, fetchErr := exchange.FetchTicker(ctx, pair, accountType)
+		if fetchErr == nil {
+			fmt.Printf("Fetched ticker for %s with pair %s\n", c.String(), pairs)
+			return decimal.NewFromFloat(ticker.Last), nil
+			//return amount.Mul(decimal.NewFromFloat(ticker.Last)), nil
+		}
+
+		//// Try reverse pair if direct pair fails
+		//reversePair := pair.Swap()
+		//ticker, err = exchange.FetchTicker(ctx, reversePair, accountType)
+		//if err == nil {
+		//	return amount.Div(decimal.NewFromFloat(ticker.Last)), nil
+		//}
+	}
+	fmt.Printf("Failed to fetch ticker for %s with pair %s\n", c.String(), pairs)
+	return decimal.Zero, fmt.Errorf("failed to fetch ticker for %s with pair %s", c.String(), pairs)
 }

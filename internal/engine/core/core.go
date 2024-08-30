@@ -169,7 +169,7 @@ func SetupExchangePairs(ctx context.Context) error {
 		}
 
 		var pairsToEnable currency.Pairs
-		quoteCurrencies := []currency.Code{currency.USDT, currency.USDC, currency.BTC, currency.USD, currency.ETH}
+		quoteCurrencies := []currency.Code{currency.USDT, currency.USDC}
 
 		for _, baseCurrency := range portfolioCurrencies {
 			for _, quoteCurrency := range quoteCurrencies {
