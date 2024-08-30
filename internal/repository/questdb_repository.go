@@ -34,13 +34,25 @@ func (q *QuestDBRepository) InsertHoldings(ctx context.Context, holding models.A
 			Float64Column("free", balance.Free.InexactFloat64()).
 			Float64Column("availableWithoutBorrow", balance.AvailableWithoutBorrow.InexactFloat64()).
 			Float64Column("borrowed", balance.Borrowed.InexactFloat64()).
+			Float64Column("USDValue", balance.USDValue.InexactFloat64()).
 			At(ctx, holding.LastUpdated)
 		if err != nil {
 			return fmt.Errorf("failed to insert holding data: %v", err)
 		}
 	}
 
-	err := q.sender.Flush(ctx)
+	// Insert total USD value for the account
+	err := q.sender.
+		Table("account_totals").
+		Symbol("exchange", holding.ExchangeName).
+		Symbol("AccountType", holding.AccountType.String()).
+		Float64Column("totalUSDValue", holding.TotalUSDValue.InexactFloat64()).
+		At(ctx, holding.LastUpdated)
+	if err != nil {
+		return fmt.Errorf("failed to insert account total data: %v", err)
+	}
+
+	err = q.sender.Flush(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to flush data: %v", err)
 	}

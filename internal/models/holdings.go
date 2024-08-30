@@ -14,11 +14,13 @@ type AssetBalance struct {
 	Free                   decimal.Decimal
 	AvailableWithoutBorrow decimal.Decimal
 	Borrowed               decimal.Decimal
+	USDValue               decimal.Decimal // USDValue represents the value of an asset in USD.
 }
 
 type AccountHoldings struct {
-	ExchangeName string
-	AccountType  asset.Item
-	Balances     map[currency.Code]AssetBalance
-	LastUpdated  time.Time
+	ExchangeName  string
+	AccountType   asset.Item
+	Balances      map[currency.Code]AssetBalance
+	LastUpdated   time.Time
+	TotalUSDValue decimal.Decimal // TotalUSDValue is a field that represents the total value in USD of an account's holdings.
 }

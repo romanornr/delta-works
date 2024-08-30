@@ -163,6 +163,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	//err = delta.SetupExchangePairs(ctx)
+	//if err != nil {
+	//	gctlog.Errorf(gctlog.Global, "Failed to setup exchange pairs: %v\n", err)
+	//	os.Exit(1)
+	//}
+
 	// initialize QuestDB repository
 	questDBConfig := "http::addr=localhost:9000;"
 	questDBRepo, err := repository.NewQuestDBRepository(ctx, questDBConfig)
@@ -174,7 +180,8 @@ func main() {
 	holdingsManager, err := delta.NewHoldingsManager(instance, questDBConfig)
 	if holdingsErr := holdingsManager.UpdateHoldings(ctx, "bybit", asset.Spot); holdingsErr != nil {
 		gctlog.Errorf(gctlog.Global, "Failed to update holdings: %v\n", holdingsErr)
-		os.Exit(1)
+		fmt.Printf("Failed to update holdings: %v\n", holdingsErr)
+		//os.Exit(1)
 	}
 
 	time.Sleep(10 * time.Second)
