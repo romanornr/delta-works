@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/thrasher-corp/gocryptotrader/config"
+	"github.com/thrasher-corp/gocryptotrader/currency"
 	"github.com/thrasher-corp/gocryptotrader/engine"
+	"github.com/thrasher-corp/gocryptotrader/exchanges/asset"
 	gctlog "github.com/thrasher-corp/gocryptotrader/log"
 	"sync"
 	"time"
@@ -116,4 +118,73 @@ func (i *Instance) StopEngine(ctx context.Context) error {
 	}
 
 	return err
+}
+
+// GetPortfolioCurrencies retrieves the list of unique currencies present in the portfolio.
+// It iterates over each exchange in the engine and fetches the account information for spot trading.
+// It then checks the balances of each currency in the account and adds the non-zero balances to the uniqueCurrencies set.
+// Finally, it converts the uniqueCurrencies set to a slice and returns it along with a nil error.
+func GetPortfolioCurrencies(ctx context.Context) ([]currency.Code, error) {
+	uniqueCurrencies := make(map[currency.Code]struct{})
+
+	for _, exch := range engine.Bot.GetExchanges() {
+		accountInfo, err := exch.FetchAccountInfo(ctx, asset.Spot)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch account info for %s: %w", exch.GetName(), err)
+		}
+
+		for _, account := range accountInfo.Accounts {
+			for _, balance := range account.Currencies {
+				if balance.Total > 0 {
+					uniqueCurrencies[balance.Currency] = struct{}{}
+				}
+			}
+		}
+	}
+
+	currencies := make([]currency.Code, 0, len(uniqueCurrencies))
+	for c := range uniqueCurrencies {
+		currencies = append(currencies, c)
+	}
+
+	return currencies, nil
+}
+
+func SetupExchangePairs(ctx context.Context) error {
+
+	exchanges := engine.Bot.GetExchanges()
+	if len(exchanges) == 0 {
+		return fmt.Errorf("no exchanges found")
+	}
+
+	portfolioCurrencies, err := GetPortfolioCurrencies(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get portfolio currencies: %w", err)
+	}
+
+	for _, exch := range exchanges {
+		err = exch.UpdateTradablePairs(ctx, false)
+		if err != nil {
+			return fmt.Errorf("failed to update tradable pairs for %s: %w", exch.GetName(), err)
+		}
+
+		var pairsToEnable currency.Pairs
+		quoteCurrencies := []currency.Code{currency.USDT, currency.USDC, currency.BTC, currency.USD, currency.ETH}
+
+		for _, baseCurrency := range portfolioCurrencies {
+			for _, quoteCurrency := range quoteCurrencies {
+				pair := currency.NewPair(baseCurrency, quoteCurrency)
+				if err := exch.GetBase().SupportsPair(pair, false, asset.Spot); err == nil {
+					pairsToEnable = append(pairsToEnable, pair)
+				}
+			}
+		}
+
+		if errStorePair := exch.GetBase().CurrencyPairs.StorePairs(asset.Spot, pairsToEnable, true); errStorePair != nil {
+			return fmt.Errorf("failed to store pairs for %s: %w", exch.GetName(), err)
+		}
+		gctlog.Infof(gctlog.Global, "%s tradable pairs enabled: %s", exch.GetName(), pairsToEnable)
+	}
+
+	return nil
 }
