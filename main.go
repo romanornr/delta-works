@@ -163,11 +163,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	//err = delta.SetupExchangePairs(ctx)
-	//if err != nil {
-	//	gctlog.Errorf(gctlog.Global, "Failed to setup exchange pairs: %v\n", err)
-	//	os.Exit(1)
-	//}
+	err = delta.SetupExchangePairs(ctx)
+	if err != nil {
+		gctlog.Errorf(gctlog.Global, "Failed to setup exchange pairs: %v\n", err)
+		os.Exit(1)
+	}
 
 	// initialize QuestDB repository
 	questDBConfig := "http::addr=localhost:9000;"

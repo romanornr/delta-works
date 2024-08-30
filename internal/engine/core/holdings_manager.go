@@ -63,7 +63,7 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 		for _, balance := range account.Currencies {
 
 			amount := decimal.NewFromFloat(balance.Total)
-			usdValue, err := h.getUSDValue(ctx, exch, balance.Currency, amount, accountType)
+			price, err := h.getUSDValue(ctx, exch, balance.Currency, amount, accountType)
 			if err != nil {
 				fmt.Printf("Failed to get USD value for %s: %v\n", balance.Currency, err)
 			}
@@ -75,10 +75,10 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 				Free:                   decimal.NewFromFloat(balance.Free),
 				AvailableWithoutBorrow: decimal.NewFromFloat(balance.AvailableWithoutBorrow),
 				Borrowed:               decimal.NewFromFloat(balance.Borrowed),
-				USDValue:               usdValue,
+				USDValue:               price.Mul(amount),
 			}
 
-			fmt.Printf("USD value for %s: %s\n", balance.Currency, usdValue.String())
+			fmt.Printf("USD value for %s: %s\n", balance.Currency, holdings.Balances[balance.Currency].USDValue.String())
 			//os.Exit(1)
 			//totalUSDValue.Add(usdValue)
 		}
