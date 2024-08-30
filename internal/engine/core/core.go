@@ -165,7 +165,8 @@ func SetupExchangePairs(ctx context.Context) error {
 	for _, exch := range exchanges {
 		err = exch.UpdateTradablePairs(ctx, false)
 		if err != nil {
-			return fmt.Errorf("failed to update tradable pairs for %s: %w", exch.GetName(), err)
+			gctlog.Warnf(gctlog.Global, "failed to update tradable pairs for %s: %v", exch.GetName(), err)
+			continue
 		}
 
 		var pairsToEnable currency.Pairs
@@ -174,14 +175,25 @@ func SetupExchangePairs(ctx context.Context) error {
 		for _, baseCurrency := range portfolioCurrencies {
 			for _, quoteCurrency := range quoteCurrencies {
 				pair := currency.NewPair(baseCurrency, quoteCurrency)
-				if err := exch.GetBase().SupportsPair(pair, false, asset.Spot); err == nil {
+				//if err := exch.GetBase().SupportsPair(pair, false, asset.Spot); err == nil {
+				//	pairsToEnable = append(pairsToEnable, pair)
+				//}
+				if exch.GetBase().CurrencyPairs.Pairs[asset.Spot].Available.Contains(pair, true) {
 					pairsToEnable = append(pairsToEnable, pair)
 				}
 			}
 		}
 
+		if len(pairsToEnable) == 0 {
+			gctlog.Warnf(gctlog.Global, "no tradable pairs found for %s", exch.GetName())
+			continue
+		}
+
 		if errStorePair := exch.GetBase().CurrencyPairs.StorePairs(asset.Spot, pairsToEnable, true); errStorePair != nil {
-			return fmt.Errorf("failed to store pairs for %s: %w", exch.GetName(), err)
+			fmt.Printf("failed to store pairs for %s: %v\n", exch.GetName(), errStorePair)
+			gctlog.Warnf(gctlog.Global, "failed to store pairs for %s: %v", exch.GetName(), errStorePair)
+			continue
+			//return fmt.Errorf("failed to store pairs for %s: %w", exch.GetName(), err)
 		}
 		gctlog.Infof(gctlog.Global, "%s tradable pairs enabled: %s", exch.GetName(), pairsToEnable)
 	}
