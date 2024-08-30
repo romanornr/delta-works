@@ -57,7 +57,7 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 		LastUpdated:  time.Now(),
 	}
 
-	//var totalUSDValue decimal.Decimal
+	var totalUSDValue decimal.Decimal
 
 	for _, account := range accountInfo.Accounts {
 		for _, balance := range account.Currencies {
@@ -79,12 +79,11 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 			}
 
 			fmt.Printf("USD value for %s: %s\n", balance.Currency, holdings.Balances[balance.Currency].USDValue.String())
-			//os.Exit(1)
-			//totalUSDValue.Add(usdValue)
+			totalUSDValue = totalUSDValue.Add(holdings.Balances[balance.Currency].USDValue)
 		}
 	}
 
-	//holdings.TotalUSDValue = totalUSDValue
+	holdings.TotalUSDValue = totalUSDValue
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
