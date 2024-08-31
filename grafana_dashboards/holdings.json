@@ -1,0 +1,340 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "questdb-questdb-datasource",
+        "uid": "ddwbnjrrk9khsd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "fieldMinMax": false,
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "__systemRef": "hideSeriesFrom",
+            "matcher": {
+              "id": "byNames",
+              "options": {
+                "mode": "exclude",
+                "names": [
+                  "USDValue",
+                  "APEX"
+                ],
+                "prefix": "All except:",
+                "readOnly": true
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 7,
+        "x": 0,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "displayLabels": [
+          "name",
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "values": [
+            "percent"
+          ]
+        },
+        "pieType": "pie",
+        "reduceOptions": {
+          "calcs": [
+            "delta"
+          ],
+          "fields": "",
+          "limit": 30,
+          "values": true
+        },
+        "tooltip": {
+          "maxHeight": 600,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "builderOptions": {
+            "0": "T",
+            "1": "h",
+            "2": "e",
+            "3": " ",
+            "4": "q",
+            "5": "u",
+            "6": "e",
+            "7": "r",
+            "8": "y",
+            "9": " ",
+            "10": "c",
+            "11": "a",
+            "12": "n",
+            "13": "'",
+            "14": "t",
+            "15": " ",
+            "16": "b",
+            "17": "e",
+            "18": " ",
+            "19": "p",
+            "20": "a",
+            "21": "r",
+            "22": "s",
+            "23": "e",
+            "24": "d",
+            "25": ".",
+            "fields": [
+              "currency",
+              "USDValue"
+            ],
+            "filters": [],
+            "groupBy": [],
+            "limit": "",
+            "metrics": [],
+            "mode": "list",
+            "orderBy": [],
+            "partitionBy": [],
+            "sampleByAlignTo": "CALENDAR",
+            "table": "holdings",
+            "timeField": "timestamp"
+          },
+          "datasource": {
+            "type": "questdb-questdb-datasource",
+            "uid": "ddwbnjrrk9khsd"
+          },
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "0": "T",
+              "1": "h",
+              "2": "e",
+              "3": " ",
+              "4": "q",
+              "5": "u",
+              "6": "e",
+              "7": "r",
+              "8": "y",
+              "9": " ",
+              "10": "c",
+              "11": "a",
+              "12": "n",
+              "13": "'",
+              "14": "t",
+              "15": " ",
+              "16": "b",
+              "17": "e",
+              "18": " ",
+              "19": "p",
+              "20": "a",
+              "21": "r",
+              "22": "s",
+              "23": "e",
+              "24": "d",
+              "25": ".",
+              "fields": [
+                "currency",
+                "USDValue"
+              ],
+              "filters": [],
+              "groupBy": [],
+              "limit": "",
+              "metrics": [],
+              "mode": "list",
+              "orderBy": [],
+              "partitionBy": [],
+              "sampleByAlignTo": "CALENDAR",
+              "table": "holdings",
+              "timeField": "timestamp"
+            }
+          },
+          "queryType": "sql",
+          "rawSql": "WITH latest_holdings AS (\n  SELECT *\n  FROM holdings\n  WHERE timestamp = (SELECT MAX(timestamp) FROM holdings)\n),\nholdings_with_total AS (\n  SELECT\n    symbol,\n    usd_value,\n    SUM(usd_value) OVER () AS total_value\n  FROM latest_holdings\n),\ncategorized_holdings AS (\n  SELECT\n    CASE\n      WHEN (usd_value / total_value) < 0.01 THEN 'Other'\n      ELSE symbol\n    END AS category,\n    SUM(usd_value) AS usd_value\n  FROM holdings_with_total\n  GROUP BY \n    CASE\n      WHEN (usd_value / total_value) < 0.01 THEN 'Other'\n      ELSE symbol\n    END\n)\nSELECT category, usd_value\nFROM categorized_holdings\nORDER BY usd_value DESC",
+          "refId": "A",
+          "selectedFormat": 2
+        }
+      ],
+      "title": "Bybit Asset Allocation Spot (excluding bots & lending) ",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "questdb-questdb-datasource",
+        "uid": "ddwbnjrrk9khsd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 7,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "maxHeight": 600,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "builderOptions": {
+            "fields": [],
+            "limit": "",
+            "metrics": [],
+            "mode": "trend",
+            "sampleByAlignTo": "CALENDAR",
+            "timeField": ""
+          },
+          "datasource": {
+            "type": "questdb-questdb-datasource",
+            "uid": "ddwbnjrrk9khsd"
+          },
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "fields": [],
+              "limit": "",
+              "metrics": [],
+              "mode": "trend",
+              "sampleByAlignTo": "CALENDAR",
+              "timeField": ""
+            }
+          },
+          "queryType": "sql",
+          "rawSql": "SELECT timestamp, SUM(total_usd_value) as total_value\nfrom account_totals\nWHERE $__timeFilter(timestamp) AND exchange = 'bybit'\nGROUP BY timestamp\nORDER BY timestamp\n",
+          "refId": "A",
+          "selectedFormat": 2
+        }
+      ],
+      "title": "Bybit Spot Account (excluding bots & lending)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": [],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timeRangeUpdatedDuringEditOrView": false,
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Holdings",
+  "uid": "bdwbppc7id3b4d",
+  "version": 17,
+  "weekStart": ""
+}
