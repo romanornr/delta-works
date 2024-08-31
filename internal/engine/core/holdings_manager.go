@@ -63,9 +63,17 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 		for _, balance := range account.Currencies {
 
 			amount := decimal.NewFromFloat(balance.Total)
-			price, err := h.getUSDValue(ctx, exch, balance.Currency, amount, accountType)
-			if err != nil {
-				fmt.Printf("Failed to get USD value for %s: %v\n", balance.Currency, err)
+			var usdValue decimal.Decimal
+
+			if balance.Currency.IsStableCurrency() {
+				usdValue = amount
+			} else {
+				price, err := h.getUSDValue(ctx, exch, balance.Currency, amount, accountType)
+				if err != nil {
+					fmt.Printf("Failed to get USD value for %s: %v\n", balance.Currency, err)
+					continue // Skip this balance if USD value cannot be fetched
+				}
+				usdValue = amount.Mul(price)
 			}
 
 			holdings.Balances[balance.Currency] = models.AssetBalance{
@@ -75,7 +83,7 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 				Free:                   decimal.NewFromFloat(balance.Free),
 				AvailableWithoutBorrow: decimal.NewFromFloat(balance.AvailableWithoutBorrow),
 				Borrowed:               decimal.NewFromFloat(balance.Borrowed),
-				USDValue:               price.Mul(amount),
+				USDValue:               usdValue,
 			}
 
 			fmt.Printf("USD value for %s: %s\n", balance.Currency, holdings.Balances[balance.Currency].USDValue.String())

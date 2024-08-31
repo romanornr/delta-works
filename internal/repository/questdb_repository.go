@@ -27,14 +27,14 @@ func (q *QuestDBRepository) InsertHoldings(ctx context.Context, holding models.A
 		err := q.sender.
 			Table("holdings").
 			Symbol("exchange", holding.ExchangeName).
-			Symbol("AccountType", holding.AccountType.String()).
-			Symbol("currency", currency.String()).
+			Symbol("account_type", holding.AccountType.String()).
+			Symbol("symbol", currency.String()).
 			Float64Column("total", balance.Total.InexactFloat64()).
 			Float64Column("hold", balance.Hold.InexactFloat64()).
 			Float64Column("free", balance.Free.InexactFloat64()).
-			Float64Column("availableWithoutBorrow", balance.AvailableWithoutBorrow.InexactFloat64()).
+			Float64Column("available_without_borrow", balance.AvailableWithoutBorrow.InexactFloat64()).
 			Float64Column("borrowed", balance.Borrowed.InexactFloat64()).
-			Float64Column("USDValue", balance.USDValue.InexactFloat64()).
+			Float64Column("usd_value", balance.USDValue.InexactFloat64()).
 			At(ctx, holding.LastUpdated)
 		if err != nil {
 			return fmt.Errorf("failed to insert holding data: %v", err)
@@ -45,8 +45,8 @@ func (q *QuestDBRepository) InsertHoldings(ctx context.Context, holding models.A
 	err := q.sender.
 		Table("account_totals").
 		Symbol("exchange", holding.ExchangeName).
-		Symbol("AccountType", holding.AccountType.String()).
-		Float64Column("totalUSDValue", holding.TotalUSDValue.InexactFloat64()).
+		Symbol("account_type", holding.AccountType.String()).
+		Float64Column("total_usd_value", holding.TotalUSDValue.InexactFloat64()).
 		At(ctx, holding.LastUpdated)
 	if err != nil {
 		return fmt.Errorf("failed to insert account total data: %v", err)
