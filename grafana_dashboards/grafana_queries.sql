@@ -45,14 +45,11 @@ Panel: Value Trend Line Chart
 Description: This query shows the total portfolio value
 over time, allowing us to track overall performance.
 */
-SELECT
-    timestamp,
-    SUM(usd_value) as total_value
-FROM holdings
-WHERE timestamp >= $__timeFrom() AND timestamp <= $__timeTo()
-GROUP BY timestamp
-ORDER BY timestamp;
-
+SELECT timestamp, total_usd_value
+FROM account_totals
+WHERE $__timeFilter(timestamp)
+  AND LOWER(exchange) = LOWER('bybit')
+ORDER BY timestamp
 -- ========================================
 
 -- Add more queries as needed...
