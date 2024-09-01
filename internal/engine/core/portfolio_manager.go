@@ -16,15 +16,19 @@ func GetPortfolioCurrencies(ctx context.Context) ([]currency.Code, error) {
 	uniqueCurrencies := make(map[currency.Code]struct{})
 
 	for _, exch := range engine.Bot.GetExchanges() {
-		accountInfo, err := exch.FetchAccountInfo(ctx, asset.Spot)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch account info for %s: %w", exch.GetName(), err)
-		}
-
-		for _, account := range accountInfo.Accounts {
-			for _, balance := range account.Currencies {
-				if balance.Total > 0 {
-					uniqueCurrencies[balance.Currency] = struct{}{}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("context cancelled: %v", ctx.Err())
+		default:
+			accountInfo, err := exch.FetchAccountInfo(ctx, asset.Spot)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch account info for %s: %w", exch.GetName(), err)
+			}
+			for _, account := range accountInfo.Accounts {
+				for _, balance := range account.Currencies {
+					if balance.Total > 0 {
+						uniqueCurrencies[balance.Currency] = struct{}{}
+					}
 				}
 			}
 		}

@@ -178,13 +178,15 @@ func main() {
 	defer questDBRepo.Close(ctx)
 
 	holdingsManager, err := delta.NewHoldingsManager(instance, questDBConfig)
-	if holdingsErr := holdingsManager.UpdateHoldings(ctx, "bybit", asset.Spot); holdingsErr != nil {
-		gctlog.Errorf(gctlog.Global, "Failed to update holdings: %v\n", holdingsErr)
-		fmt.Printf("Failed to update holdings: %v\n", holdingsErr)
-		//os.Exit(1)
+	if err != nil {
+		cancel()
+		log.Fatalf("failed to create holdings manager: %v", err)
 	}
 
-	time.Sleep(10 * time.Second)
+	stopHoldingsUpdate := make(chan struct{})
+	defer close(stopHoldingsUpdate)
+
+	go continuesHoldingsUpdate(ctx, holdingsManager, stopHoldingsUpdate)
 
 	<-ctx.Done()
 	fmt.Println("Shutdown in progress. This may take up to 30 seconds...")
@@ -237,31 +239,31 @@ func main() {
 	gctlog.Infof(gctlog.Global, "DeltaWorks has been shutdown gracefully\n")
 }
 
-//func insertData() error {
-//	ctx := context.TODO()
-//	sender, err := questdb.LineSenderFromConf(ctx, "http::addr=localhost:9000;")
-//	if err != nil {
-//		return fmt.Errorf("failed to create new line sender: %w", err)
-//	}
-//	defer sender.Close(ctx)
-//
-//	err = sender.
-//		Table("holdings").
-//		Symbol("exchange", "bybit").
-//		Symbol("accountType", "spot").
-//		Float64Column("amount", 0.7).
-//		At(ctx, time.Now())
-//	if err != nil {
-//		return fmt.Errorf("failed to insert data: %w", err)
-//	}
-//
-//	err = sender.Flush(ctx)
-//	if err != nil {
-//		return fmt.Errorf("failed to flush data: %w", err)
-//	}
-//
-//	return nil
-//}
+// continuesHoldingsUpdate periodically updates the holdings for multiple exchanges and account types.
+func continuesHoldingsUpdate(ctx context.Context, holdingsManager *delta.HoldingsManager, stop <-chan struct{}) {
+	updateTicker := time.NewTicker(30 * time.Second)
+	defer updateTicker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-stop:
+			return
+		case <-updateTicker.C:
+			exchanges := engine.Bot.GetExchanges()
+			for _, exch := range exchanges {
+				if err := holdingsManager.UpdateHoldings(ctx, exch.GetName(), asset.Spot); err != nil {
+					gctlog.Errorf(gctlog.Global, "Failed to update holdings for %s: %v\n", exch.GetName(), err)
+				} else {
+					gctlog.Infof(gctlog.Global, "Updated holdings for %s\n", exch.GetName())
+					fmt.Printf("Updated holdings for %s successfully\n", exch.GetName())
+				}
+			}
+			gctlog.Infof(gctlog.Global, "Updated holdings for all exchanges\n")
+			fmt.Println("Updated holdings for all exchanges successfully")
+		}
+	}
+}
 
 func waitForInterrupt(cancel context.CancelFunc, waiter chan<- struct{}) {
 	interrupt := signaler.WaitForInterrupt()
