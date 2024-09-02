@@ -3,9 +3,9 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/romanornr/delta-works/internal/logger"
 	"github.com/thrasher-corp/gocryptotrader/config"
 	"github.com/thrasher-corp/gocryptotrader/engine"
-	gctlog "github.com/thrasher-corp/gocryptotrader/log"
 	"sync"
 	"time"
 )
@@ -62,7 +62,7 @@ func (i *Instance) Initialize(ctx context.Context) error {
 		if engine.Bot == nil {
 			return fmt.Errorf("engine initialization failed: Bot is nil")
 		}
-		gctlog.Debugln(gctlog.Global, "Engine successfully initialized")
+		logger.Info().Msg("Engine successfully initialized")
 		return nil
 	}
 }
@@ -84,7 +84,6 @@ func (i *Instance) StartEngine(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to start engine: %v", err)
 		}
-		gctlog.Infoln(gctlog.Global, "Engine successfully started")
 		return nil
 	}
 }
@@ -113,6 +112,7 @@ func (i *Instance) StopEngine(ctx context.Context) error {
 		}
 	case <-done:
 		// Engine stopped normally
+		logger.Info().Msg("Engine stopped")
 	}
 
 	return err

@@ -6,7 +6,9 @@ import (
 	"flag"
 	"fmt"
 	delta "github.com/romanornr/delta-works/internal/engine/core"
+	"github.com/romanornr/delta-works/internal/logger"
 	"github.com/romanornr/delta-works/internal/repository"
+	"github.com/rs/zerolog/log"
 	"github.com/thrasher-corp/gocryptotrader/common"
 	"github.com/thrasher-corp/gocryptotrader/config"
 	"github.com/thrasher-corp/gocryptotrader/core"
@@ -18,10 +20,8 @@ import (
 	"github.com/thrasher-corp/gocryptotrader/exchanges/trade"
 	"github.com/thrasher-corp/gocryptotrader/gctscript"
 	gctscriptVM "github.com/thrasher-corp/gocryptotrader/gctscript/vm"
-	gctlog "github.com/thrasher-corp/gocryptotrader/log"
 	"github.com/thrasher-corp/gocryptotrader/portfolio/withdraw"
 	"github.com/thrasher-corp/gocryptotrader/signaler"
-	"log"
 	"os"
 	"runtime"
 	"time"
@@ -141,31 +141,34 @@ func main() {
 		gctscript.Setup()
 	}()
 
+	// initialize the logger
+	logger.Init()
+
 	// base context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	go func() {
 		interrupt := signaler.WaitForInterrupt()
-		gctlog.Infof(gctlog.Global, "Captured %v, shutdown requested.\n", interrupt)
+		logger.Info().Msgf("Captured %v, shutdown requested.\n", interrupt)
 		cancel() // cancel the context to stop the engine and all its routines
 	}()
 
 	instance, err := delta.GetInstance(ctx, &settings, flagSet)
 	if err != nil {
-		gctlog.Errorf(gctlog.Global, "Failed to get instance: %v\n", err)
+		logger.Error().Err(err).Msg("Failed to get instance")
 		os.Exit(1)
 	}
 
 	err = instance.StartEngine(ctx)
 	if err != nil {
-		gctlog.Errorf(gctlog.Global, "Failed to start engine: %v\n", err)
+		logger.Error().Err(err).Msg("Failed to start engine")
 		os.Exit(1)
 	}
 
 	err = delta.SetupExchangePairs(ctx)
 	if err != nil {
-		gctlog.Errorf(gctlog.Global, "Failed to setup exchange pairs: %v\n", err)
+		logger.Error().Err(err).Msg("Failed to setup exchange pairs")
 		os.Exit(1)
 	}
 
@@ -173,14 +176,23 @@ func main() {
 	questDBConfig := "http::addr=localhost:9000;"
 	questDBRepo, err := repository.NewQuestDBRepository(ctx, questDBConfig)
 	if err != nil {
-		log.Fatalf("failed to create QuestDB repository: %v", err)
+		logger.Error().Err(err).Msg("Failed to create QuestDB repository")
 	}
-	defer questDBRepo.Close(ctx)
+	defer func(questDBRepo *repository.QuestDBRepository, ctx context.Context) {
+		err := questDBRepo.Close(ctx)
+		if err != nil {
+			logger.Error().Err(err).Msg("Failed to close QuestDB repository")
+		}
+	}(questDBRepo, ctx)
 
 	holdingsManager, err := delta.NewHoldingsManager(instance, questDBConfig)
 	if err != nil {
-		cancel()
-		log.Fatalf("failed to create holdings manager: %v", err)
+		logger.Error().Err(err).Msg("failed to create holdings manager")
+		if err := instance.StopEngine(ctx); err != nil {
+			logger.Error().Err(err).Msg("failed to stop engine")
+		}
+		cancel() // cancel the context to stop the engine and all its routines
+		return   // Exit main function, allowing for deferred functions to run
 	}
 
 	stopHoldingsUpdate := make(chan struct{})
@@ -189,7 +201,7 @@ func main() {
 	go continuesHoldingsUpdate(ctx, holdingsManager, stopHoldingsUpdate)
 
 	<-ctx.Done()
-	fmt.Println("Shutdown in progress. This may take up to 30 seconds...")
+	logger.Info().Msg("Shutdown in progress. This may take up to 30 seconds...")
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
@@ -198,7 +210,7 @@ func main() {
 	var stopErr error
 
 	go func() {
-		fmt.Println("Stopping DeltaWorks engine...")
+		logger.Info().Msg("Stopping the DeltaWorks engine...")
 		stopErr = instance.StopEngine(shutdownCtx)
 		close(done)
 	}()
@@ -207,8 +219,7 @@ func main() {
 	secondInterrupt := make(chan struct{}, 1)
 	go func() {
 		interrupt := signaler.WaitForInterrupt()
-		fmt.Printf("\nSecond interrupt received (%v). Forcing immediate exit...\n", interrupt)
-		gctlog.Infof(gctlog.Global, "Captured %v, second shutdown requested.\n", interrupt)
+		logger.Info().Msgf("Captured %v, second shutdown requested.\n", interrupt)
 		secondInterrupt <- struct{}{}
 	}()
 
@@ -216,58 +227,58 @@ func main() {
 	select {
 	case <-shutdownCtx.Done():
 		if errors.Is(shutdownCtx.Err(), context.DeadlineExceeded) {
-			gctlog.Errorln(gctlog.Global, "Shutdown timed out, forcing exit")
+			logger.Error().Msg("Shutdown timed out, forcing exit")
 		} else {
-			gctlog.Errorln(gctlog.Global, "Shutdown was cancelled, forcing exit")
+			log.Info().Msg("Shutdown was cancelled, forcing exit")
 		}
 	case <-secondInterrupt:
-		gctlog.Infoln(gctlog.Global, "Second interrupt received, forcing exit")
+		logger.Error().Msg("Second interrupt received, forcing exit")
 		shutdownCancel() // Cancel the shutdown context
 	case <-done:
 		if stopErr != nil {
-			gctlog.Errorf(gctlog.Global, "Error during engine shutdown: %v\n", stopErr)
+			log.Error().Err(stopErr).Msg("Error during engine shutdown")
 		} else {
-			gctlog.Infoln(gctlog.Global, "Engine stopped successfully")
+			log.Info().Msg("Engine stopped successfully")
 		}
 	}
 
 	// Wait for a short period to allow for any final cleanup
-	fmt.Println("Performing final cleanup...")
+	log.Info().Msg("Performing final cleanup...")
 	time.Sleep(9 * time.Second)
 
-	fmt.Print("DeltaWorks has been shutdown gracefully")
-	gctlog.Infof(gctlog.Global, "DeltaWorks has been shutdown gracefully\n")
+	log.Info().Msg("DeltaWorks has been shutdown gracefully")
 }
 
 // continuesHoldingsUpdate periodically updates the holdings for multiple exchanges and account types.
 func continuesHoldingsUpdate(ctx context.Context, holdingsManager *delta.HoldingsManager, stop <-chan struct{}) {
+	logger.Debug().Msg("Starting holdings update routine")
 	updateTicker := time.NewTicker(30 * time.Second)
 	defer updateTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
+			logger.Info().Msg("Context cancelled, stopping holdings update routine")
 			return
 		case <-stop:
+			logger.Info().Msg("Stop signal received, stopping holdings update routine")
 			return
 		case <-updateTicker.C:
 			exchanges := engine.Bot.GetExchanges()
 			for _, exch := range exchanges {
 				if err := holdingsManager.UpdateHoldings(ctx, exch.GetName(), asset.Spot); err != nil {
-					gctlog.Errorf(gctlog.Global, "Failed to update holdings for %s: %v\n", exch.GetName(), err)
+					log.Error().Err(err).Msgf("Failed to update holdings for %s", exch.GetName())
 				} else {
-					gctlog.Infof(gctlog.Global, "Updated holdings for %s\n", exch.GetName())
-					fmt.Printf("Updated holdings for %s successfully\n", exch.GetName())
+					log.Debug().Msgf("Updated holdings for %s successfully", exch.GetName())
 				}
 			}
-			gctlog.Infof(gctlog.Global, "Updated holdings for all exchanges\n")
-			fmt.Println("Updated holdings for all exchanges successfully")
+			log.Debug().Msg("Updated holdings for all exchanges")
 		}
 	}
 }
 
 func waitForInterrupt(cancel context.CancelFunc, waiter chan<- struct{}) {
 	interrupt := signaler.WaitForInterrupt()
-	gctlog.Infof(gctlog.Global, "Captured %v, shutdown requested.\n", interrupt)
+	logger.Info().Msgf("Captured %v, shutdown requested.\n", interrupt)
 	cancel() // cancel the context to stop the engine and all its routines
 	waiter <- struct{}{}
 }

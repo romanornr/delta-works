@@ -3,10 +3,10 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/romanornr/delta-works/internal/logger"
 	"github.com/thrasher-corp/gocryptotrader/currency"
 	"github.com/thrasher-corp/gocryptotrader/engine"
 	"github.com/thrasher-corp/gocryptotrader/exchanges/asset"
-	gctlog "github.com/thrasher-corp/gocryptotrader/log"
 )
 
 func SetupExchangePairs(ctx context.Context) error {
@@ -24,7 +24,7 @@ func SetupExchangePairs(ctx context.Context) error {
 	for _, exch := range exchanges {
 		err = exch.UpdateTradablePairs(ctx, false)
 		if err != nil {
-			gctlog.Warnf(gctlog.Global, "failed to update tradable pairs for %s: %v", exch.GetName(), err)
+			logger.Warn().Msgf("failed to update tradable pairs for %s: %v", exch.GetName(), err)
 			continue
 		}
 
@@ -44,18 +44,15 @@ func SetupExchangePairs(ctx context.Context) error {
 		}
 
 		if len(pairsToEnable) == 0 {
-			gctlog.Warnf(gctlog.Global, "no tradable pairs found for %s", exch.GetName())
+			logger.Warn().Msgf("no tradable pairs found for %s", exch.GetName())
 			continue
 		}
 
 		if errStorePair := exch.GetBase().CurrencyPairs.StorePairs(asset.Spot, pairsToEnable, true); errStorePair != nil {
-			fmt.Printf("failed to store pairs for %s: %v\n", exch.GetName(), errStorePair)
-			gctlog.Warnf(gctlog.Global, "failed to store pairs for %s: %v", exch.GetName(), errStorePair)
+			logger.Warn().Msgf("failed to store pairs for %s: %v", exch.GetName(), errStorePair)
 			continue
-			//return fmt.Errorf("failed to store pairs for %s: %w", exch.GetName(), err)
 		}
-		gctlog.Infof(gctlog.Global, "%s tradable pairs enabled: %s", exch.GetName(), pairsToEnable)
+		logger.Info().Msgf("%s tradable pairs enabled: %s", exch.GetName(), pairsToEnable)
 	}
-
 	return nil
 }

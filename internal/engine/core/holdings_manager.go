@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/romanornr/delta-works/internal/logger"
 	"github.com/romanornr/delta-works/internal/models"
 	"github.com/romanornr/delta-works/internal/repository"
 	"github.com/shopspring/decimal"
@@ -116,7 +117,7 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 		return fmt.Errorf("failed to save holdings: %v", err)
 	}
 
-	fmt.Printf("Updated holdings for %s %s\n", exchangeName, accountType)
+	logger.Info().Msgf("Updated holdings for %s %s", exchangeName, accountType)
 	return nil
 }
 
@@ -135,7 +136,7 @@ func (h *HoldingsManager) saveHoldings(ctx context.Context, exchangeName string,
 	if err := h.repo.InsertHoldings(ctx, *holdings); err != nil {
 		return fmt.Errorf("failed to insert holdings into QuestDB: %v\n", err)
 	}
-	fmt.Printf("Updated holdings for %s %s\n", exchangeName, accountType)
+	logger.Info().Msgf("Updated holdings for %s %s", exchangeName, accountType)
 	return nil
 }
 
@@ -168,9 +169,7 @@ func (h *HoldingsManager) getUSDValue(ctx context.Context, exchange exchange.IBo
 	for _, pair := range pairs {
 		ticker, fetchErr := exchange.FetchTicker(ctx, pair, accountType)
 		if fetchErr == nil {
-			fmt.Printf("Fetched ticker for %s with pair %s\n", c.String(), pairs)
 			return decimal.NewFromFloat(ticker.Last), nil
-			//return amount.Mul(decimal.NewFromFloat(ticker.Last)), nil
 		}
 
 		//// Try reverse pair if direct pair fails
@@ -180,6 +179,6 @@ func (h *HoldingsManager) getUSDValue(ctx context.Context, exchange exchange.IBo
 		//	return amount.Div(decimal.NewFromFloat(ticker.Last)), nil
 		//}
 	}
-	fmt.Printf("Failed to fetch ticker for %s with pair %s\n", c.String(), pairs)
+	logger.Warn().Msgf("Failed to fetch ticker for %s with pair %s", c.String(), pairs)
 	return decimal.Zero, fmt.Errorf("failed to fetch ticker for %s with pair %s", c.String(), pairs)
 }
