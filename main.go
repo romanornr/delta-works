@@ -12,6 +12,7 @@ import (
 	"github.com/thrasher-corp/gocryptotrader/common"
 	"github.com/thrasher-corp/gocryptotrader/config"
 	"github.com/thrasher-corp/gocryptotrader/core"
+	"github.com/thrasher-corp/gocryptotrader/currency"
 	"github.com/thrasher-corp/gocryptotrader/dispatch"
 	"github.com/thrasher-corp/gocryptotrader/engine"
 	"github.com/thrasher-corp/gocryptotrader/exchanges/alert"
@@ -195,6 +196,32 @@ func main() {
 		return   // Exit main function, allowing for deferred functions to run
 	}
 
+	// initial sync
+	err = holdingsManager.UpdateHoldings(ctx, "bybit", asset.Spot)
+	if err != nil {
+		logger.Error().Err(err).Msgf("Failed to update holdings for %s", "bybit")
+	}
+
+	withdrawalManager, err := delta.NewWithdrawalManager(instance, questDBConfig)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to create withdrawal manager")
+		if err := instance.StopEngine(ctx); err != nil {
+			logger.Error().Err(err).Msg("failed to stop engine")
+		}
+		cancel() // cancel the context to stop the engine and all its routines
+		return   // Exit main function, allowing for deferred functions to run
+	}
+
+	withdrawals, err := withdrawalManager.FetchWithdrawalHistory(ctx, "bybit", currency.USDT, asset.Spot)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to fetch withdrawal history")
+	}
+
+	err = questDBRepo.StoreWithdrawal(ctx, "bybit", withdrawals)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to store withdrawal")
+	}
+
 	stopHoldingsUpdate := make(chan struct{})
 	defer close(stopHoldingsUpdate)
 
@@ -252,7 +279,7 @@ func main() {
 // continuesHoldingsUpdate periodically updates the holdings for multiple exchanges and account types.
 func continuesHoldingsUpdate(ctx context.Context, holdingsManager *delta.HoldingsManager, stop <-chan struct{}) {
 	logger.Debug().Msg("Starting holdings update routine")
-	updateTicker := time.NewTicker(30 * time.Second)
+	updateTicker := time.NewTicker(10 * time.Minute)
 	defer updateTicker.Stop()
 	for {
 		select {
