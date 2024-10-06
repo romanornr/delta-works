@@ -27,16 +27,10 @@ func NewWithdrawalManager(i *Instance, QuestDBConfig string) (*WithdrawalManager
 }
 
 func (wm *WithdrawalManager) FetchWithdrawalHistory(ctx context.Context, exchangeName string, currency currency.Code, accountType asset.Item) ([]exchange.WithdrawalHistory, error) {
-	exch, err := engine.Bot.ExchangeManager.GetExchangeByName(exchangeName)
+	exch, err := engine.Bot.GetExchangeByName(exchangeName)
 	if err != nil {
 		return nil, fmt.Errorf("exchange %s not found", exchangeName)
 	}
-
-	//// or
-	//exch, err := engine.Bot.GetExchangeByName(exchangeName)
-	//if err != nil {
-	//	return nil, fmt.Errorf("exchange %s not found", exchangeName)
-	//}
 
 	history, err := exch.GetWithdrawalsHistory(ctx, currency, accountType)
 	if err != nil {
@@ -44,5 +38,4 @@ func (wm *WithdrawalManager) FetchWithdrawalHistory(ctx context.Context, exchang
 	}
 
 	return history, nil
-
 }
