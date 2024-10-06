@@ -5,6 +5,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"os"
+	"runtime"
+	"time"
+
 	delta "github.com/romanornr/delta-works/internal/engine/core"
 	"github.com/romanornr/delta-works/internal/logger"
 	"github.com/romanornr/delta-works/internal/repository"
@@ -23,15 +27,13 @@ import (
 	gctscriptVM "github.com/thrasher-corp/gocryptotrader/gctscript/vm"
 	"github.com/thrasher-corp/gocryptotrader/portfolio/withdraw"
 	"github.com/thrasher-corp/gocryptotrader/signaler"
-	"os"
-	"runtime"
-	"time"
 )
 
 const (
 	// DefaultConfigPath is the default configuration file path
-	DefaultConfigPath = "config.json"
-	botName           = "DeltaWorks"
+	DefaultConfigPath      = "config.json"
+	botName                = "DeltaWorks"
+	holdingsUpdateInterval = 10 * time.Minute
 )
 
 func main() {
@@ -279,15 +281,17 @@ func main() {
 // continuesHoldingsUpdate periodically updates the holdings for multiple exchanges and account types.
 func continuesHoldingsUpdate(ctx context.Context, holdingsManager *delta.HoldingsManager, stop <-chan struct{}) {
 	logger.Debug().Msg("Starting holdings update routine")
-	updateTicker := time.NewTicker(10 * time.Minute)
+	updateTicker := time.NewTicker(holdingsUpdateInterval)
 	defer updateTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			logger.Info().Msg("Context cancelled, stopping holdings update routine")
+			time.Sleep(100 * time.Microsecond) // Allow for any final cleanup
 			return
 		case <-stop:
 			logger.Info().Msg("Stop signal received, stopping holdings update routine")
+			time.Sleep(100 * time.Microsecond) // Allow for any final cleanup
 			return
 		case <-updateTicker.C:
 			exchanges := engine.Bot.GetExchanges()
