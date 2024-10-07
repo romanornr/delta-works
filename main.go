@@ -224,10 +224,7 @@ func main() {
 		logger.Error().Err(err).Msg("failed to store withdrawal")
 	}
 
-	stopHoldingsUpdate := make(chan struct{})
-	defer close(stopHoldingsUpdate)
-
-	go continuesHoldingsUpdate(ctx, holdingsManager, stopHoldingsUpdate)
+	go holdingsManager.ContinuesHoldingsUpdate(ctx)
 
 	<-ctx.Done()
 	logger.Info().Msg("Shutdown in progress. This may take up to 30 seconds...")
@@ -276,35 +273,6 @@ func main() {
 	time.Sleep(9 * time.Second)
 
 	log.Info().Msg("DeltaWorks has been shutdown gracefully")
-}
-
-// continuesHoldingsUpdate periodically updates the holdings for multiple exchanges and account types.
-func continuesHoldingsUpdate(ctx context.Context, holdingsManager *delta.HoldingsManager, stop <-chan struct{}) {
-	logger.Debug().Msg("Starting holdings update routine")
-	updateTicker := time.NewTicker(holdingsUpdateInterval)
-	defer updateTicker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info().Msg("Context cancelled, stopping holdings update routine")
-			time.Sleep(100 * time.Microsecond) // Allow for any final cleanup
-			return
-		case <-stop:
-			logger.Info().Msg("Stop signal received, stopping holdings update routine")
-			time.Sleep(100 * time.Microsecond) // Allow for any final cleanup
-			return
-		case <-updateTicker.C:
-			exchanges := engine.Bot.GetExchanges()
-			for _, exch := range exchanges {
-				if err := holdingsManager.UpdateHoldings(ctx, exch.GetName(), asset.Spot); err != nil {
-					log.Error().Err(err).Msgf("Failed to update holdings for %s", exch.GetName())
-				} else {
-					log.Debug().Msgf("Updated holdings for %s successfully", exch.GetName())
-				}
-			}
-			log.Debug().Msg("Updated holdings for all exchanges")
-		}
-	}
 }
 
 func waitForInterrupt(cancel context.CancelFunc, waiter chan<- struct{}) {

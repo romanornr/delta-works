@@ -6,6 +6,7 @@ import (
 	"github.com/romanornr/delta-works/internal/logger"
 	"github.com/romanornr/delta-works/internal/models"
 	"github.com/romanornr/delta-works/internal/repository"
+	"github.com/rs/zerolog/log"
 	"github.com/shopspring/decimal"
 	"github.com/thrasher-corp/gocryptotrader/currency"
 	"github.com/thrasher-corp/gocryptotrader/engine"
@@ -14,6 +15,10 @@ import (
 	"github.com/thrasher-corp/gocryptotrader/exchanges/asset"
 	"sync"
 	"time"
+)
+
+const (
+	holdingsUpdateInterval = 10 * time.Minute
 )
 
 // HoldingsManager manages account holdings for multiple exchanges and account types
@@ -181,4 +186,36 @@ func (h *HoldingsManager) getUSDValue(ctx context.Context, exchange exchange.IBo
 	}
 	logger.Warn().Msgf("Failed to fetch ticker for %s with pair %s", c.String(), pairs)
 	return decimal.Zero, fmt.Errorf("failed to fetch ticker for %s with pair %s", c.String(), pairs)
+}
+
+// ContinuesHoldingsUpdate continuously updates account holdings for all exchanges at a regular interval until context cancellation.
+func (h *HoldingsManager) ContinuesHoldingsUpdate(ctx context.Context) {
+	logger.Debug().Msg("Starting holdings update routine")
+	updateTicker := time.NewTicker(holdingsUpdateInterval)
+	defer updateTicker.Stop()
+
+	var wg sync.WaitGroup // WaitGroup to wait for all exchange holdings to be updated
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info().Msg("Context cancelled, stopping holdings update routine")
+			wg.Wait()
+			return
+		case <-updateTicker.C:
+			exchanges := engine.Bot.GetExchanges()
+			for _, exch := range exchanges {
+				wg.Add(1) // Increment WaitGroup counter
+				go func(exchangeName string) {
+					defer wg.Done()
+					if err := h.UpdateHoldings(ctx, exchangeName, asset.Spot); err != nil {
+						log.Error().Err(err).Msgf("Failed to update holdings for %s", exchangeName)
+					} else {
+						log.Debug().Msgf("Updated holdings for %s", exchangeName)
+					}
+				}(exch.GetName()) // Pass exchange name to goroutine
+			}
+			log.Debug().Msg("Holdings updated for all exchanges")
+		}
+	}
 }
