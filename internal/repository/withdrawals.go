@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/romanornr/delta-works/internal/logger"
 	exchange "github.com/thrasher-corp/gocryptotrader/exchanges"
@@ -86,6 +88,21 @@ func (q *QuestDBRepository) StoreWithdrawal(ctx context.Context, exchangeName st
 	return nil
 }
 
-//func (q *QuestDBRepository) getLastWithdrawalTimestamp(ctx context.Context, exchangeName string) (time.Time, error) {
-//
-//}
+// getLastWithdrawalTimestamp retrieves the most recent withdrawal timestamp for a given exchange.
+func (q *QuestDBRepository) getLastWithdrawalTimestamp(ctx context.Context, exchangeName string) (time.Time, error) {
+	query := fmt.Sprintf("SELECT MAX(timestamp) FROM %s WHERE exchange = '%s'", tableNameWithdrawals, exchangeName)
+	row := q.db.QueryRowContext(ctx, query)
+	var lastTimestamp sql.NullTime
+	if err := row.Scan(&lastTimestamp); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return time.Time{}, nil // no rows found
+		}
+		return time.Time{}, fmt.Errorf("failed to get last withdrawal timestamp: %w", err)
+	}
+
+	if lastTimestamp.Valid {
+		return lastTimestamp.Time, nil // return the last timestamp
+	}
+
+	return time.Time{}, nil
+}
