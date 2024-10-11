@@ -37,6 +37,7 @@ func (q *QuestDBRepository) StoreWithdrawal(ctx context.Context, exchangeName st
 	defer cancel()
 
 	var insertCount int
+	var errs []error
 	for _, withdrawal := range withdrawals {
 		err := q.sender.
 			Table(tableNameWithdrawals).
@@ -58,7 +59,8 @@ func (q *QuestDBRepository) StoreWithdrawal(ctx context.Context, exchangeName st
 			At(ctx, withdrawal.Timestamp)
 
 		if err != nil {
-			return fmt.Errorf("failed to store withdrawal data: %v", err)
+			errs = append(errs, fmt.Errorf("failed to store withdrawal data: %s: %w", withdrawal.TransferID, err))
+			continue
 		}
 		insertCount++
 	}
@@ -69,8 +71,16 @@ func (q *QuestDBRepository) StoreWithdrawal(ctx context.Context, exchangeName st
 			Int("records", insertCount).
 			Msg("stored withdrawal data")
 		if err := q.sender.Flush(ctx); err != nil {
-			return fmt.Errorf("failed to flush data: %w", err)
+			errs = append(errs, fmt.Errorf("failed to flush data: %w", err))
 		}
+	}
+
+	if len(errs) > 0 {
+		var combinedError error
+		for _, err := range errs {
+			combinedError = fmt.Errorf("%w; %v", combinedError, err)
+		}
+		return combinedError
 	}
 
 	return nil
