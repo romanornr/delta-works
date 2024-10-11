@@ -3,7 +3,24 @@ package repository
 import (
 	"context"
 	"fmt"
+	"github.com/romanornr/delta-works/internal/logger"
 	exchange "github.com/thrasher-corp/gocryptotrader/exchanges"
+)
+
+const (
+	tableNameWithdrawals      = "withdrawals"
+	exchangeColumnName        = "exchange"
+	statusColumnName          = "status"
+	transferIDColumnName      = "transfer_id"
+	descriptionColumnName     = "description"
+	currencyColumnName        = "currency"
+	transferTypeColumnName    = "transfer_type"
+	cryptoToAddressColumnName = "crypto_to_address"
+	cryptoTxIDColumnName      = "crypto_tx_id"
+	cryptoChainColumnName     = "crypto_chain"
+	bankToColumnName          = "bank_to"
+	amountColumnName          = "amount"
+	feeColumnName             = "fee"
 )
 
 // StoreWithdrawal saves the given withdrawal record into the "withdrawals" table in QuestDB.
@@ -17,21 +34,21 @@ func (q *QuestDBRepository) StoreWithdrawal(ctx context.Context, exchangeName st
 	var insertCount int
 	for _, withdrawal := range withdrawals {
 		err := q.sender.
-			Table("withdrawals").
+			Table(tableNameWithdrawals).
 			// Symbol columns first
-			Symbol("exchange", exchangeName).
-			Symbol("status", withdrawal.Status).
-			Symbol("transfer_id", withdrawal.TransferID).
-			Symbol("description", withdrawal.Description).
-			Symbol("currency", withdrawal.Currency).
-			Symbol("transfer_type", withdrawal.TransferType).
-			Symbol("crypto_to_address", withdrawal.CryptoToAddress).
-			Symbol("crypto_tx_id", withdrawal.CryptoTxID).
-			Symbol("crypto_chain", withdrawal.CryptoChain).
-			Symbol("bank_to", withdrawal.BankTo).
+			Symbol(exchangeColumnName, exchangeName).
+			Symbol(statusColumnName, withdrawal.Status).
+			Symbol(transferIDColumnName, withdrawal.TransferID).
+			Symbol(descriptionColumnName, withdrawal.Description).
+			Symbol(currencyColumnName, withdrawal.Currency).
+			Symbol(transferTypeColumnName, withdrawal.TransferType).
+			Symbol(cryptoToAddressColumnName, withdrawal.CryptoToAddress).
+			Symbol(cryptoTxIDColumnName, withdrawal.CryptoTxID).
+			Symbol(cryptoChainColumnName, withdrawal.CryptoChain).
+			Symbol(bankToColumnName, withdrawal.BankTo).
 			// Float columns after
-			Float64Column("amount", withdrawal.Amount).
-			Float64Column("fee", withdrawal.Fee).
+			Float64Column(amountColumnName, withdrawal.Amount).
+			Float64Column(feeColumnName, withdrawal.Fee).
 			// Timestamp last
 			At(ctx, withdrawal.Timestamp)
 
@@ -42,6 +59,7 @@ func (q *QuestDBRepository) StoreWithdrawal(ctx context.Context, exchangeName st
 	}
 
 	if insertCount > 0 {
+		logger.Info().Msgf("Stored %d withdrawal records for %s", insertCount, exchangeName)
 		if err := q.sender.Flush(ctx); err != nil {
 			return fmt.Errorf("failed to flush data: %w", err)
 		}
