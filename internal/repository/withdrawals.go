@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/romanornr/delta-works/internal/logger"
 	exchange "github.com/thrasher-corp/gocryptotrader/exchanges"
+	"time"
 )
 
 const (
@@ -30,6 +31,10 @@ func (q *QuestDBRepository) StoreWithdrawal(ctx context.Context, exchangeName st
 	if len(withdrawals) == 0 {
 		return nil
 	}
+
+	// Create a context with a timeout of 10 seconds to prevent indefinite blocking
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 
 	var insertCount int
 	for _, withdrawal := range withdrawals {
@@ -59,7 +64,10 @@ func (q *QuestDBRepository) StoreWithdrawal(ctx context.Context, exchangeName st
 	}
 
 	if insertCount > 0 {
-		logger.Info().Msgf("Stored %d withdrawal records for %s", insertCount, exchangeName)
+		logger.Info().
+			Str("exchange", exchangeName).
+			Int("records", insertCount).
+			Msg("stored withdrawal data")
 		if err := q.sender.Flush(ctx); err != nil {
 			return fmt.Errorf("failed to flush data: %w", err)
 		}
