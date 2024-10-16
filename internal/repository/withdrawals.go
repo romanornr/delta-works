@@ -28,9 +28,9 @@ const (
 	timestampColumnName       = "timestamp"
 )
 
-// StoreWithdrawal saves the given withdrawal record into the "withdrawals" table in QuestDB.
-// It records various details such as exchange, status, transfer ID, and amount.
-// If storing the data or flushing the data to QuestDB fails, an error is returned.
+// StoreWithdrawal stores a list of withdrawal records in the QuestDB repository for a specific exchange.
+// It handles batching of inserts and skips withdrawals already stored based on the timestamp.
+// If any errors occur during insertion, they are accumulated and returned together.
 func (q *QuestDBRepository) StoreWithdrawal(ctx context.Context, exchangeName string, withdrawals []exchange.WithdrawalHistory) error {
 	if len(withdrawals) == 0 {
 		return nil
@@ -50,37 +50,52 @@ func (q *QuestDBRepository) StoreWithdrawal(ctx context.Context, exchangeName st
 
 	var insertCount int
 	var errs []error
-	for _, withdrawal := range withdrawals {
+	batchSize := 2
 
-		// Skip if the withdrawal is older or equal to the last stored withdrawal
-		if !withdrawal.Timestamp.After(lastTimeStamp) {
-			continue
+	// Insert withdrawals in batches to prevent large queries
+	for i := 0; i < len(withdrawals); i += batchSize {
+		end := i + batchSize // Calculate the end index of the batch
+		if end > len(withdrawals) {
+			end = len(withdrawals) // Avoid out of range
 		}
 
-		err := q.sender.
-			Table(tableNameWithdrawals).
-			// Symbol columns first
-			Symbol(exchangeColumnName, exchangeName).
-			Symbol(statusColumnName, withdrawal.Status).
-			Symbol(transferIDColumnName, withdrawal.TransferID).
-			Symbol(descriptionColumnName, withdrawal.Description).
-			Symbol(currencyColumnName, withdrawal.Currency).
-			Symbol(transferTypeColumnName, withdrawal.TransferType).
-			Symbol(cryptoToAddressColumnName, withdrawal.CryptoToAddress).
-			Symbol(cryptoTxIDColumnName, withdrawal.CryptoTxID).
-			Symbol(cryptoChainColumnName, withdrawal.CryptoChain).
-			Symbol(bankToColumnName, withdrawal.BankTo).
-			// Float columns after
-			Float64Column(amountColumnName, withdrawal.Amount).
-			Float64Column(feeColumnName, withdrawal.Fee).
-			// Timestamp last
-			At(ctx, withdrawal.Timestamp)
+		batch := withdrawals[i:end] // Get the current batch
 
-		if err != nil {
-			errs = append(errs, fmt.Errorf("failed to store withdrawal data: %s: %w", withdrawal.TransferID, err))
-			continue
+		for _, withdrawal := range batch {
+			// Skip if the withdrawal is older or equal to the last stored withdrawal
+			if !withdrawal.Timestamp.After(lastTimeStamp) {
+				continue
+			}
+
+			err := q.sender.
+				Table(tableNameWithdrawals).
+				// Symbol columns first
+				Symbol(exchangeColumnName, exchangeName).
+				Symbol(statusColumnName, withdrawal.Status).
+				Symbol(transferIDColumnName, withdrawal.TransferID).
+				Symbol(descriptionColumnName, withdrawal.Description).
+				Symbol(currencyColumnName, withdrawal.Currency).
+				Symbol(transferTypeColumnName, withdrawal.TransferType).
+				Symbol(cryptoToAddressColumnName, withdrawal.CryptoToAddress).
+				Symbol(cryptoTxIDColumnName, withdrawal.CryptoTxID).
+				Symbol(cryptoChainColumnName, withdrawal.CryptoChain).
+				Symbol(bankToColumnName, withdrawal.BankTo).
+				// Float columns after
+				Float64Column(amountColumnName, withdrawal.Amount).
+				Float64Column(feeColumnName, withdrawal.Fee).
+				// Timestamp last
+				At(ctx, withdrawal.Timestamp)
+
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed to insert withdrawal data: %w", err))
+				continue
+			}
+			insertCount++
 		}
-		insertCount++
+
+		if err := q.sender.Flush(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("failed to flush data: %w", err))
+		}
 	}
 
 	if insertCount > 0 {
@@ -88,9 +103,6 @@ func (q *QuestDBRepository) StoreWithdrawal(ctx context.Context, exchangeName st
 			Str("exchange", exchangeName).
 			Int("records", insertCount).
 			Msg("stored withdrawal data")
-		if err := q.sender.Flush(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to flush data: %w", err))
-		}
 	}
 
 	if len(errs) > 0 {
