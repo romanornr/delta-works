@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/thrasher-corp/gocryptotrader/currency"
 	"github.com/thrasher-corp/gocryptotrader/engine"
@@ -14,14 +13,9 @@ import (
 // It then checks the balances of each currency in the account and adds the non-zero balances to the uniqueCurrencies set.
 // Finally, it converts the uniqueCurrencies set to a slice and returns it along with a nil error.
 func GetPortfolioCurrencies(ctx context.Context) ([]currency.Code, error) {
-	// Early context check to avoid unnecessary operations if already cancelled
-	select {
-	case <-ctx.Done():
-		if errors.Is(ctx.Err(), context.Canceled) {
-			return nil, fmt.Errorf("context cancelled")
-		}
-		return nil, fmt.Errorf("context cancelled: %v", ctx.Err())
-	default: // Continue with the operation
+	// Check if context is cancelled or has a deadline
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("context cancelled or deadline exceeded: %v", ctx.Err())
 	}
 
 	uniqueCurrencies := make(map[currency.Code]struct{})
