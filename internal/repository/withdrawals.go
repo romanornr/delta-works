@@ -42,10 +42,11 @@ func (q *QuestDBRepository) StoreWithdrawal(ctx context.Context, exchangeName st
 
 	lastTimeStamp, err := q.getLastWithdrawalTimestamp(ctx, exchangeName)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			lastTimeStamp = time.Time{} // No previous withdrawals found, start from zero time
+		if !errors.Is(err, sql.ErrNoRows) {
+			logger.Error().Err(err).Str("exchange", exchangeName).Msg("failed to get last withdrawal timestamp")
 		}
-		return fmt.Errorf("failed to get last withdrawal timestamp: %w", err)
+		// Fallback to zero time if any error occurs (including sql.ErrNoRows, which is implicitly handled here)
+		lastTimeStamp = time.Time{} // No previous withdrawals found, start from zero time
 	}
 
 	var insertCount int
@@ -122,7 +123,7 @@ func (q *QuestDBRepository) getLastWithdrawalTimestamp(ctx context.Context, exch
 	var lastTimestamp sql.NullTime
 	err := q.db.QueryRowContext(ctx, query).Scan(&lastTimestamp)
 	if err != nil {
-		if strings.Contains(err.Error(), "table does not exist") {
+		if err != nil && strings.Contains(err.Error(), "table does not exist") {
 			logger.Info().Msg("Withdrawals table does not exist. This might be the initial sync.")
 			return time.Time{}, nil // Return zero time for initial sync
 		}
