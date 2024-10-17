@@ -123,7 +123,7 @@ func (q *QuestDBRepository) getLastWithdrawalTimestamp(ctx context.Context, exch
 	var lastTimestamp sql.NullTime
 	err := q.db.QueryRowContext(ctx, query).Scan(&lastTimestamp)
 	if err != nil {
-		if err != nil && strings.Contains(err.Error(), "table does not exist") {
+		if strings.Contains(err.Error(), "table does not exist") {
 			logger.Info().Msg("Withdrawals table does not exist. This might be the initial sync.")
 			return time.Time{}, nil // Return zero time for initial sync
 		}

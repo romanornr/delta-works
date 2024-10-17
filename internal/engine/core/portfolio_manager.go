@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/thrasher-corp/gocryptotrader/currency"
 	"github.com/thrasher-corp/gocryptotrader/engine"
@@ -18,6 +19,9 @@ func GetPortfolioCurrencies(ctx context.Context) ([]currency.Code, error) {
 	for _, exch := range engine.Bot.GetExchanges() {
 		select {
 		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return nil, fmt.Errorf("context cancelled")
+			}
 			return nil, fmt.Errorf("context cancelled: %v", ctx.Err())
 		default:
 			accountInfo, err := exch.FetchAccountInfo(ctx, asset.Spot)
