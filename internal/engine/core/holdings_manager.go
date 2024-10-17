@@ -194,15 +194,13 @@ func (h *HoldingsManager) ContinuesHoldingsUpdate(ctx context.Context) {
 	updateTicker := time.NewTicker(holdingsUpdateInterval)
 	defer updateTicker.Stop()
 
-	var wg sync.WaitGroup // WaitGroup to wait for all exchange holdings to be updated
-
 	for {
 		select {
 		case <-ctx.Done():
 			logger.Info().Msg("Context cancelled, stopping holdings update routine")
-			wg.Wait()
 			return
 		case <-updateTicker.C:
+			var wg sync.WaitGroup
 			exchanges := engine.Bot.GetExchanges()
 			for _, exch := range exchanges {
 				wg.Add(1) // Increment WaitGroup counter
