@@ -2,7 +2,7 @@ package models
 
 import "time"
 
-// Withdrawal represents a record of a funds withdrawal from an exchange.
+// Withdrawal represents a record of funds being taken out from an account.
 type Withdrawal struct {
 	Exchange        string
 	Status          string

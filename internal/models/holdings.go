@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// AssetBalance represents the balance of a specific asset in an account.
 type AssetBalance struct {
 	Currency               currency.Code
 	Total                  decimal.Decimal
@@ -17,6 +18,8 @@ type AssetBalance struct {
 	USDValue               decimal.Decimal // USDValue represents the value of an asset in USD.
 }
 
+// AccountHoldings represents the account holdings for a specific exchange and account type.
+// It includes the exchange name, account type, asset balances, last update time, and total value in USD.
 type AccountHoldings struct {
 	ExchangeName  string
 	AccountType   asset.Item

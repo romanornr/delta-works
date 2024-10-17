@@ -9,6 +9,7 @@ import (
 // log is the global logger instance.
 var log zerolog.Logger
 
+// timeFormat defines the standard format for timestamps: "2006-01-02 15:04:05".
 const timeFormat = "2006-01-02 15:04:05"
 
 // Init initializes the logger by setting the time format, error stack marshaler,
