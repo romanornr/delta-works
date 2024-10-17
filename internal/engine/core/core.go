@@ -11,17 +11,19 @@ import (
 )
 
 var (
-	instance *Instance
-	once     sync.Once
+	instance   *Instance
+	instanceMu sync.Mutex
+	once       sync.Once
 )
 
+// Instance manages settings and configuration flags for initializing and controlling the engine.
 type Instance struct {
 	Settings *engine.Settings
 	FlagSet  map[string]bool
 }
 
+// GetInstance initializes and retrieves a singleton instance of the application, ensuring thread safety and context-aware setup.
 func GetInstance(ctx context.Context, settings *engine.Settings, flagset map[string]bool) (*Instance, error) {
-
 	var err error
 	once.Do(func() {
 		instance = &Instance{
@@ -35,11 +37,20 @@ func GetInstance(ctx context.Context, settings *engine.Settings, flagset map[str
 		}
 	})
 
+	// Prevent concurrent reads during error handling without the lock, another goroutine might concurrently execute 'once.Do' again
+	// Even if 'err' is nil, the lock ensures that the 'instance' assignment (happening inside 'once.Do') is fully visible
+	// to all goroutines before we return 'instance'.
+	instanceMu.Lock()
+	defer instanceMu.Unlock()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get instance: %w", err)
+	}
+
 	return instance, err
 }
 
+// Initialize configures and starts the engine based on provided settings, handling context cancellation and errors.
 func (i *Instance) Initialize(ctx context.Context) error {
-
 	errChan := make(chan error, 1)
 	done := make(chan struct{})
 
