@@ -7,12 +7,35 @@ Built using [GoCryptoTrader](https://github.com/thrasher-corp/gocryptotrader)
 Delta OEMS features including real-time market data, order management, and portfolio tracking.
 
 ## Features
-[x] Multi-exchange support
+### Holdings Management
 
-[ ] Real-time market data
+[x] Real-time tracking of account holdings across multiple exchanges
 
-[ ] Portfolio tracking
+[x] Support for different account types (spot, margin, futures)
 
+[x] Automatic holdings updates at configurable intervals
+
+[x] Storage of historical holdings data in QuestDB
+
+### Withdrawal Management
+
+[x] Fetch and store withdrawal history from supported exchanges
+
+[x] Batch processing of withdrawal records
+
+[x] Duplicate prevention using timestamp-based tracking
+
+[x] Efficient storage in QuestDB with proper handling of initial sync
+
+[x] Support for all withdrawal types (crypto and fiat)
+
+### Grafana intergration 
+[x] Portfolio tracking and visualization
+
+[x] Holdings and withdrawal data visualization
+
+
+### WIP 
 [ ] Order management
 
 [ ] Algorithmic trading strategies
@@ -33,26 +56,42 @@ Delta OEMS features including real-time market data, order management, and portf
 
 [ ] Web-based dashboard
 
-[ ] Grafana integration
 
-[ ] Grafana dashboards for market data, order management, and portfolio tracking
 
-Directory structure (WIP):
+Current Directory structure (WIP):
 ```
 deltaworks/
+├── cmd/
+│   └── main.go                 # Application entry point
 ├── internal/
 │   ├── core/
-│   │   └── core.go  (minimal GoCryptoTrader wrapper)
-│   ├── oems/
-│   │   ├── oems.go  (main OEMS logic)
-│   │   ├── order_manager.go
-│   │   ├── execution_engine.go
-│   │   └── portfolio_manager.go
-│   └── exchange/
-│       └── adapter.go  (GoCryptoTrader exchange adapter)
-└── cmd/
-└── deltaworks/
-└── main.go
+│   │   ├── core.go            # Core engine functionality
+│   │   ├── holdings_manager.go # Holdings management
+│   │   ├── withdrawal_manager.go # Withdrawal operations
+│   │   ├── exchange_setup.go  # Exchange configuration
+│   │   └── portfolio_manager.go # Portfolio management
+│   ├── models/
+│   │   ├── holdings.go        # Data models for holdings
+│   │   └── withdrawal.go      # Data models for withdrawals
+│   ├── repository/
+│   │   ├── questdb_repository.go # Base QuestDB operations
+│   │   ├── holdings.go        # Holdings storage operations
+│   │   └── withdrawals.go     # Withdrawal storage operations
+│   └── logger/
+│       └── logger.go          # Logging configuration
+├── config/
+│   └── config.json           # Application configuration
+├── scripts/
+│   └── init_questdb.sql      # Database initialization scripts
+├── grafana/
+│   ├── dashboards/
+│   │   ├── holdings.json     # Holdings visualization
+│   │   └── withdrawals.json  # Withdrawal visualization
+│   └── queries/
+│       ├── holdings_queries.sql
+│       └── withdrawal_queries.sql
+└── docs/
+    └── API.md                # API documentation
 ```
 
 old:
@@ -101,3 +140,10 @@ deltaWorks/
 ├── go.mod
 └── go.sum
 ```
+
+Dependencies
+
+- **[GoCryptoTrader](https://github.com/thrasher-corp/gocryptotrader)**: Core trading functionality
+- **QuestDB**: Time-series database for data storage
+- **Zerolog**: Structured logging
+- **Chi**: HTTP routing (if applicable)
