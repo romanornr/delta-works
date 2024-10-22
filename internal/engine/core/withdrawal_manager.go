@@ -34,7 +34,7 @@ func (wm *WithdrawalManager) FetchWithdrawalHistory(ctx context.Context, exchang
 
 	history, err := exch.GetWithdrawalsHistory(ctx, currency, accountType)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch withdrawal history for %s %s: %v", exchangeName, currency, err)
+		return nil, fmt.Errorf("failed to fetch withdrawal history for %s %s: %v", exchangeName, currency.String(), err)
 	}
 
 	return history, nil

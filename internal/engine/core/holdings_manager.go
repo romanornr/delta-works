@@ -141,7 +141,7 @@ func (h *HoldingsManager) saveHoldings(ctx context.Context, exchangeName string,
 	if err := h.repo.InsertHoldings(ctx, *holdings); err != nil {
 		return fmt.Errorf("failed to insert holdings into QuestDB: %v\n", err)
 	}
-	logger.Info().Msgf("Updated holdings for %s %s", exchangeName, accountType)
+	logger.Info().Msgf("Updated holdings for %s %s", exchangeName, accountType.String())
 	return nil
 }
 
