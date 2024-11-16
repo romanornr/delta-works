@@ -224,6 +224,18 @@ func main() {
 		logger.Error().Err(err).Msg("failed to store withdrawal")
 	}
 
+	// Fetch deposit history
+	depositManager, err := delta.NewDepositManager(instance, questDBConfig)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to create deposit manager")
+	}
+
+	err = depositManager.FetchDepositHistory(ctx, "bybit")
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to fetch deposit history")
+		os.Exit(1)
+	}
+
 	go holdingsManager.ContinuesHoldingsUpdate(ctx)
 
 	<-ctx.Done()
