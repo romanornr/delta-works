@@ -156,6 +156,8 @@ func (h *HoldingsManager) saveHoldings(ctx context.Context, exchangeName string,
 }
 
 func (h *HoldingsManager) getUSDValue(ctx context.Context, exchange exchange.IBotExchange, c currency.Code, amount decimal.Decimal, accountType asset.Item) (decimal.Decimal, error) {
+	// DEBUG: Log which currency is being processed for USD value calculation
+	logger.Debug().Msgf("Processing USD value calculation for currency: %s, amount: %s", c.String(), amount.String())
 
 	if c == currency.USD {
 		return amount, nil
@@ -175,17 +177,25 @@ func (h *HoldingsManager) getUSDValue(ctx context.Context, exchange exchange.IBo
 	}
 
 	//	if c.IsCryptocurrency() {
+	// DEBUG: Log ticker pair creation attempt
+	logger.Debug().Msgf("Creating ticker pairs for currency: %s (amount: %s)", c.String(), amount.String())
+
 	// create pairs to fetch ticker
 	pairs := []currency.Pair{
 		currency.NewPair(c, currency.USDT),
 		currency.NewPair(c, currency.USDC),
 	}
 
+	// DEBUG: Log the pairs being attempted
+	logger.Debug().Msgf("Attempting to fetch tickers for pairs: %v", pairs)
+
 	for _, pair := range pairs {
 		ticker, fetchErr := exchange.UpdateTicker(ctx, pair, accountType)
 		if fetchErr == nil {
+			logger.Debug().Msgf("Successfully fetched ticker for %s: %f", pair.String(), ticker.Last)
 			return decimal.NewFromFloat(ticker.Last), nil
 		}
+		logger.Debug().Msgf("Failed to fetch ticker for %s: %v", pair.String(), fetchErr)
 
 		//// Try reverse pair if direct pair fails
 		//reversePair := pair.Swap()

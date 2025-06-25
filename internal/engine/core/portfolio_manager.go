@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/romanornr/delta-works/internal/logger"
 	"github.com/thrasher-corp/gocryptotrader/currency"
 	"github.com/thrasher-corp/gocryptotrader/engine"
 	"github.com/thrasher-corp/gocryptotrader/exchanges/asset"
@@ -28,11 +29,20 @@ func GetPortfolioCurrencies(ctx context.Context) ([]currency.Code, error) {
 			return nil, fmt.Errorf("failed to update account info for %s: %w", exch.GetName(), err)
 		}
 
+		// DEBUG: Log exchange being processed
+		logger.Debug().Msgf("Processing portfolio currencies for exchange: %s", exch.GetName())
+
 		// collect currencies with non-zero balances
 		for _, account := range accountInfo.Accounts {
 			for _, balance := range account.Currencies {
+				// DEBUG: Log all balances being checked
+				logger.Debug().Msgf("Checking balance for %s: Total=%f, Free=%f, Hold=%f",
+					balance.Currency.String(), balance.Total, balance.Free, balance.Hold)
+
 				if balance.Total > 0 {
 					uniqueCurrencies[balance.Currency] = struct{}{}
+					logger.Debug().Msgf("Added %s to portfolio currencies (Total: %f)",
+						balance.Currency.String(), balance.Total)
 				}
 			}
 		}
@@ -43,6 +53,9 @@ func GetPortfolioCurrencies(ctx context.Context) ([]currency.Code, error) {
 	for c := range uniqueCurrencies {
 		currencies = append(currencies, c)
 	}
+
+	// DEBUG: Log final portfolio currencies
+	logger.Info().Msgf("Final portfolio currencies detected: %v", currencies)
 
 	return currencies, nil
 }
