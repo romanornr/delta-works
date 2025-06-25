@@ -3,6 +3,9 @@ package core
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
+
 	"github.com/romanornr/delta-works/internal/logger"
 	"github.com/romanornr/delta-works/internal/models"
 	"github.com/romanornr/delta-works/internal/repository"
@@ -13,8 +16,6 @@ import (
 	exchange "github.com/thrasher-corp/gocryptotrader/exchanges"
 	"github.com/thrasher-corp/gocryptotrader/exchanges/account"
 	"github.com/thrasher-corp/gocryptotrader/exchanges/asset"
-	"sync"
-	"time"
 )
 
 const (
@@ -55,9 +56,9 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 		return fmt.Errorf("exchange %s not found", exchangeName)
 	}
 
-	accountInfo, err := exch.FetchAccountInfo(ctx, accountType)
+	accountInfo, err := exch.UpdateAccountInfo(ctx, accountType)
 	if err != nil {
-		return fmt.Errorf("failed to fetch account info for %s %s: %v", exchangeName, accountType, err)
+		return fmt.Errorf("failed to update account info for %s %s: %v", exchangeName, accountType, err)
 	}
 
 	holdings := &models.AccountHoldings{
@@ -69,8 +70,17 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 
 	var totalUSDValue decimal.Decimal
 	var wg sync.WaitGroup
-	balanceChan := make(chan models.AssetBalance, len(accountInfo.Accounts)*len(accountInfo.Accounts[0].Currencies)) // buffer size is the number of balances to process
-	errChan := make(chan error, len(accountInfo.Accounts)*len(accountInfo.Accounts[0].Currencies))
+	// Calculate buffer size more safely
+	bufferSize := 0
+	for _, a := range accountInfo.Accounts {
+		bufferSize += len(a.Currencies)
+	}
+	if bufferSize == 0 {
+		bufferSize = 10 // default buffer size
+	}
+
+	balanceChan := make(chan models.AssetBalance, bufferSize)
+	errChan := make(chan error, bufferSize)
 
 	for _, a := range accountInfo.Accounts {
 		for _, balance := range a.Currencies {
@@ -172,7 +182,7 @@ func (h *HoldingsManager) getUSDValue(ctx context.Context, exchange exchange.IBo
 	}
 
 	for _, pair := range pairs {
-		ticker, fetchErr := exchange.FetchTicker(ctx, pair, accountType)
+		ticker, fetchErr := exchange.UpdateTicker(ctx, pair, accountType)
 		if fetchErr == nil {
 			return decimal.NewFromFloat(ticker.Last), nil
 		}

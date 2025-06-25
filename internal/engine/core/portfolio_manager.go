@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+
 	"github.com/thrasher-corp/gocryptotrader/currency"
 	"github.com/thrasher-corp/gocryptotrader/engine"
 	"github.com/thrasher-corp/gocryptotrader/exchanges/asset"
@@ -22,9 +23,9 @@ func GetPortfolioCurrencies(ctx context.Context) ([]currency.Code, error) {
 
 	// Iterate over each exchange to fetch account information and collect unique currencies
 	for _, exch := range engine.Bot.GetExchanges() {
-		accountInfo, err := exch.FetchAccountInfo(ctx, asset.Spot)
+		accountInfo, err := exch.UpdateAccountInfo(ctx, asset.Spot)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch account info for %s: %w", exch.GetName(), err)
+			return nil, fmt.Errorf("failed to update account info for %s: %w", exch.GetName(), err)
 		}
 
 		// collect currencies with non-zero balances

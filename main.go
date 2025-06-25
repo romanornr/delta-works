@@ -116,7 +116,7 @@ func main() {
 	flag.StringVar(&settings.GlobalHTTPProxy, "globalhttpproxy", "", "sets the common HTTP client's proxy server")
 
 	// GCTScript tuning settings
-	flag.UintVar(&settings.MaxVirtualMachines, "maxvirtualmachines", uint(gctscriptVM.DefaultMaxVirtualMachines), "set max virtual machines that can load")
+	flag.Uint64Var(&settings.MaxVirtualMachines, "maxvirtualmachines", uint64(gctscriptVM.DefaultMaxVirtualMachines), "set max virtual machines that can load")
 
 	// Withdraw Cache tuning settings
 	flag.Uint64Var(&settings.WithdrawCacheSize, "withdrawcachesize", withdraw.CacheSize, "set cache size for withdrawal requests")
@@ -224,18 +224,18 @@ func main() {
 		logger.Error().Err(err).Msg("failed to store withdrawal")
 	}
 
-	// Fetch deposit history
-	depositManager, err := delta.NewDepositManager(instance, questDBConfig)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to create deposit manager")
-	}
-
-	err = depositManager.FetchDepositHistory(ctx, "bybit")
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to fetch deposit history")
-		os.Exit(1)
-	}
-
+	//// Fetch deposit history
+	//depositManager, err := delta.NewDepositManager(instance, questDBConfig)
+	//if err != nil {
+	//	logger.Error().Err(err).Msg("failed to create deposit manager")
+	//}
+	//
+	//err = depositManager.FetchDepositHistory(ctx, "bybit", currency.USDT)
+	//if err != nil {
+	//	logger.Error().Err(err).Msg("failed to fetch deposit history")
+	//	os.Exit(1)
+	//}
+	//
 	go holdingsManager.ContinuesHoldingsUpdate(ctx)
 
 	<-ctx.Done()
