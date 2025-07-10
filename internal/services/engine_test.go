@@ -107,8 +107,8 @@ func (m *mockEngineService) IsRunning() bool {
 
 func (m *mockEngineService) GetExchanges() []container.ExchangeService {
 	return []container.ExchangeService{
-		&mockExchangeService{name: "exchange1"},
-		&mockExchangeService{name: "exchange2"},
+		&mockExchangeService{name: "bybit"},
+		&mockExchangeService{name: "binance"},
 	}
 }
 
