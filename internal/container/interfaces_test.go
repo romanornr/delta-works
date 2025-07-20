@@ -49,7 +49,7 @@ func (m *mockExchangeService) UpdateAccountInfo(ctx context.Context, assetType a
 func (m *mockExchangeService) UpdateTicker(ctx context.Context, pair currency.Pair, assetType asset.Item) (*ticker.Price, error) {
 	return nil, nil
 }
-func (m *mockExchangeService) GetWithdrawalsHistory(ctx context.Context, pair currency.Pair, assetType asset.Item) ([]exchanges.WithdrawalHistory, error) {
+func (m *mockExchangeService) GetWithdrawalsHistory(ctx context.Context, currency currency.Code, assetType asset.Item) ([]exchanges.WithdrawalHistory, error) {
 	return nil, nil
 }
 
@@ -140,6 +140,8 @@ var _Logger = (*mockLogger)(nil)
 var _LogEvent = (*mockLogEvent)(nil)
 
 func TestInterfaceCompliance(t *testing.T) {
+	// Test that mock implementations can be assigned to interface variables
+	// This verifies interface compliance at runtime (compile-time checks are above)
 	var engine EngineService = &mockEngineService{}
 	var exchange ExchangeService = &mockExchangeService{}
 	var repo RepositoryService = &mockRepositoryService{}
@@ -147,7 +149,24 @@ func TestInterfaceCompliance(t *testing.T) {
 	var withdrawal WithdrawalService = &mockWithdrawalService{}
 	var logger Logger = &mockLogger{}
 
-	if engine == nil || exchange == nil || repo == nil || holdings == nil || withdrawal == nil || logger == nil {
-		t.Error("interface implementations should not be nil")
+	// Test that the interfaces can be used (basic smoke test)
+	if engine.IsRunning() {
+		t.Error("mock engine should not be running")
 	}
+
+	if exchange.GetName() != "" {
+		t.Error("mock exchange should return empty name")
+	}
+
+	if logger.Info() == nil {
+		t.Error("mock logger Info() should not return nil")
+	}
+
+	// Verify all interface variables are properly assigned (this should always pass)
+	_ = engine
+	_ = exchange
+	_ = repo
+	_ = holdings
+	_ = withdrawal
+	_ = logger
 }
