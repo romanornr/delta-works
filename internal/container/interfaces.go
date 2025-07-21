@@ -28,7 +28,7 @@ type ExchangeService interface {
 	GetName() string
 	UpdateAccountInfo(ctx context.Context, assetType asset.Item) (account.Holdings, error)
 	UpdateTicker(ctx context.Context, pair currency.Pair, assetType asset.Item) (*ticker.Price, error)
-	GetWithdrawalsHistory(ctx context.Context, pair currency.Pair, assetType asset.Item) ([]exchanges.WithdrawalHistory, error)
+	GetWithdrawalsHistory(ctx context.Context, currency currency.Code, assetType asset.Item) ([]exchanges.WithdrawalHistory, error)
 }
 
 // RepositoryService abstracts repository operations

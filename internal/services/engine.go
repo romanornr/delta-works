@@ -155,6 +155,6 @@ func (es *exchangeService) UpdateTicker(ctx context.Context, pair currency.Pair,
 }
 
 // GetWithdrawalsHistory returns the withdrawal history for the exchange
-func (es *exchangeService) GetWithdrawalsHistory(ctx context.Context, pair currency.Pair, assetType asset.Item) ([]exchange.WithdrawalHistory, error) {
-	return es.exchange.GetWithdrawalsHistory(ctx, pair.Base, assetType)
+func (es *exchangeService) GetWithdrawalsHistory(ctx context.Context, currency currency.Code, assetType asset.Item) ([]exchange.WithdrawalHistory, error) {
+	return es.exchange.GetWithdrawalsHistory(ctx, currency, assetType)
 }

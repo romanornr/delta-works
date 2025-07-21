@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,6 +171,66 @@ func (m *mockExchangeService) UpdateTicker(ctx context.Context, pair currency.Pa
 	return &ticker.Price{ExchangeName: m.name, Pair: pair}, nil
 }
 
-func (m *mockExchangeService) GetWithdrawalsHistory(ctx context.Context, pair currency.Pair, assetType asset.Item) ([]exchange.WithdrawalHistory, error) {
+func (m *mockExchangeService) GetWithdrawalsHistory(ctx context.Context, currency currency.Code, assetType asset.Item) ([]exchange.WithdrawalHistory, error) {
+	if m.name == "bybit" {
+		return []exchange.WithdrawalHistory{
+			{
+				Currency: "BTC",
+				Amount:   1,
+				Status:   "completed",
+			},
+		}, nil
+	}
 	return []exchange.WithdrawalHistory{}, nil
+}
+
+func TestWithdrawalService_FetchWithdrawalHistory(t *testing.T) {
+	mockLogger := &mockLogger{}
+	mockEngine := &mockEngineService{logger: mockLogger}
+	mockRepo := newMockRepositoryService()
+
+	withdrawalService := NewWithdrawalService(mockEngine, mockRepo, mockLogger)
+
+	ctx := context.Background()
+	withdrawals, err := withdrawalService.FetchWithdrawalHistory(ctx, "bybit", currency.BTC, asset.Spot)
+	if err != nil {
+		t.Fatalf("FetchWithdrawalHistory failed: %v", err)
+	}
+
+	if len(withdrawals) != 1 {
+		t.Errorf("Expected 1 withdrawal, got %d", len(withdrawals))
+	}
+
+	// Verify that the withdrawal was stored in the mock repository
+	if len(mockRepo.withdrawals["bybit"]) != 1 {
+		t.Errorf("Expected 1 withdrawal to be stored, got %d", len(mockRepo.withdrawals["bybit"]))
+	}
+
+	if mockRepo.withdrawals["bybit"][0].Currency != "BTC" {
+		t.Errorf("Expected stored withdrawal to have currency BTC, got %s", mockRepo.withdrawals["bybit"][0].Currency)
+	}
+}
+
+func TestWithdrawalService_InterfaceCompliance(t *testing.T) {
+	var _ container.WithdrawalService = (*withdrawalService)(nil)
+	t.Log("Withdrawal service interface compliance verified")
+}
+
+func TestWithdrawalService_ExchangeNotFound(t *testing.T) {
+	mockEngine := &mockEngineService{logger: &mockLogger{}}
+	mockRepo := newMockRepositoryService()
+	mockLogger := &mockLogger{}
+
+	withdrawalService := NewWithdrawalService(mockEngine, mockRepo, mockLogger)
+
+	ctx := context.Background()
+	_, err := withdrawalService.FetchWithdrawalHistory(ctx, "nonexistent", currency.BTC, asset.Spot)
+	if err == nil {
+		t.Error("Expected error for non-existent exchange")
+	}
+
+	expectedError := "exchange nonexistent not found"
+	if !strings.Contains(err.Error(), expectedError) {
+		t.Errorf("Expected error %q, got %q", expectedError, err.Error())
+	}
 }
