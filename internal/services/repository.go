@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 
-	"github.com/romanornr/delta-works/internal/container"
+	"github.com/romanornr/delta-works/internal/contracts"
 	"github.com/romanornr/delta-works/internal/models"
 	"github.com/romanornr/delta-works/internal/repository"
 	exchange "github.com/thrasher-corp/gocryptotrader/exchanges"
@@ -11,12 +11,12 @@ import (
 
 type repositoryService struct {
 	questDB *repository.QuestDBRepository
-	logger  container.Logger
+	logger  contracts.Logger
 }
 
 // NewRepositoryService creates a new repository service
-func NewRepositoryService(questDBConfig string, logger container.Logger) (container.RepositoryService, error) {
-	questDB, err := repository.NewQuestDBRepository(context.Background(), questDBConfig)
+func NewRepositoryService(questDBConfig string, logger contracts.Logger) (contracts.RepositoryService, error) {
+	questDB, err := repository.NewQuestDBRepository(context.Background(), questDBConfig, logger)
 	if err != nil {
 		return nil, err
 	}

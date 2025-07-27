@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+
+	"github.com/romanornr/delta-works/internal/contracts"
 )
 
 type ServiceContainer struct {
 	descriptors map[reflect.Type]*ServiceDescriptor
 	scopes      map[string]map[reflect.Type]interface{}
 	mu          sync.RWMutex
-	logger      Logger
+	logger      contracts.Logger
 }
 
 type ServiceDescriptor struct {
@@ -46,7 +48,7 @@ const (
 
 type ServiceFactory func(container *ServiceContainer) (interface{}, error)
 
-func NewServiceContainer(logger Logger) *ServiceContainer {
+func NewServiceContainer(logger contracts.Logger) *ServiceContainer {
 	return &ServiceContainer{
 		descriptors: make(map[reflect.Type]*ServiceDescriptor),
 		scopes:      make(map[string]map[reflect.Type]interface{}),

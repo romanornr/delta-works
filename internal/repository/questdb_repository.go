@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/questdb/go-questdb-client/v3"
+	"github.com/romanornr/delta-works/internal/contracts"
 )
 
 // QuestDBRepository is a repository for managing data storage in QuestDB.
@@ -13,10 +15,11 @@ import (
 type QuestDBRepository struct {
 	sender questdb.LineSender
 	db     *sql.DB
+	logger contracts.Logger
 }
 
 // NewQuestDBRepository creates a new QuestDBRepository instance using the provided context and configuration string.
-func NewQuestDBRepository(ctx context.Context, config string) (*QuestDBRepository, error) {
+func NewQuestDBRepository(ctx context.Context, config string, logger contracts.Logger) (*QuestDBRepository, error) {
 	sender, err := questdb.LineSenderFromConf(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create QuestDB sender: %w", err)
@@ -38,6 +41,7 @@ func NewQuestDBRepository(ctx context.Context, config string) (*QuestDBRepositor
 	return &QuestDBRepository{
 		sender: sender,
 		db:     db,
+		logger: logger,
 	}, nil
 }
 

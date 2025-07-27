@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/romanornr/delta-works/internal/container"
+	"github.com/romanornr/delta-works/internal/contracts"
 	"github.com/romanornr/delta-works/internal/models"
 	exchange "github.com/thrasher-corp/gocryptotrader/exchanges"
 	"github.com/thrasher-corp/gocryptotrader/exchanges/asset"
@@ -122,6 +122,6 @@ func TestHoldingsService_StartStopContinuousUpdate(t *testing.T) {
 }
 
 func TestHoldingsService_InterfaceCompliance(t *testing.T) {
-	var _ container.HoldingsService = (*holdingsService)(nil)
+	var _ contracts.HoldingsService = (*holdingsService)(nil)
 	t.Log("Holdings service interface compliance verified")
 }

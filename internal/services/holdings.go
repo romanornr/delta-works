@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/romanornr/delta-works/internal/container"
+	"github.com/romanornr/delta-works/internal/contracts"
 	"github.com/romanornr/delta-works/internal/models"
 	"github.com/shopspring/decimal"
 	"github.com/thrasher-corp/gocryptotrader/currency"
@@ -19,9 +19,9 @@ const (
 
 // HoldingsService manages account holdings with dependency injection
 type holdingsService struct {
-	engine   container.EngineService
-	repo     container.RepositoryService
-	logger   container.Logger
+	engine   contracts.EngineService
+	repo     contracts.RepositoryService
+	logger   contracts.Logger
 	holdings map[string]map[asset.Item]models.AccountHoldings
 	mu       sync.RWMutex
 
@@ -31,7 +31,7 @@ type holdingsService struct {
 	done   chan struct{}
 }
 
-func NewHoldingsService(engine container.EngineService, repo container.RepositoryService, logger container.Logger) container.HoldingsService {
+func NewHoldingsService(engine contracts.EngineService, repo contracts.RepositoryService, logger contracts.Logger) contracts.HoldingsService {
 	return &holdingsService{
 		engine:   engine,
 		repo:     repo,

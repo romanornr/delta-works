@@ -7,7 +7,49 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/romanornr/delta-works/internal/contracts"
 )
+
+// mockLogger is a mock implementation of the Logger interface
+type mockLogger struct {
+	id int64
+}
+
+func (m *mockLogger) Info() contracts.LogEvent {
+	return &mockLogEvent{}
+}
+
+func (m *mockLogger) Debug() contracts.LogEvent {
+	return &mockLogEvent{}
+}
+
+func (m *mockLogger) Warn() contracts.LogEvent {
+	return &mockLogEvent{}
+}
+
+func (m *mockLogger) Error() contracts.LogEvent {
+	return &mockLogEvent{}
+}
+
+// mockLogEvent is a mock implementation of the LogEvent interface
+type mockLogEvent struct{}
+
+func (m *mockLogEvent) Msg(msg string) {}
+
+func (m *mockLogEvent) Msgf(format string, a ...any) {}
+
+func (m *mockLogEvent) Err(err error) contracts.LogEvent {
+	return m
+}
+
+func (m *mockLogEvent) Str(key, value string) contracts.LogEvent {
+	return m
+}
+
+func (m *mockLogEvent) Int(key string, value int) contracts.LogEvent {
+	return m
+}
 
 // mockLoggerIDCounter is used to generate unique IDs for mockLogger instances.
 // This counter works in conjunction with the id field in mockLogger to prevent
@@ -19,7 +61,7 @@ func TestServiceContainer_RegisterAndGet(t *testing.T) {
 	container := NewServiceContainer(logger)
 
 	// Test SharedResource registration and retrieval
-	serviceType := reflect.TypeOf((*Logger)(nil)).Elem()
+	serviceType := reflect.TypeOf((*contracts.Logger)(nil)).Elem()
 	container.RegisterSharedResource(serviceType, func(c *ServiceContainer) (interface{}, error) {
 		// Use atomic.AddInt64() to safely generate unique IDs across goroutines.
 		// This ensures each mockLogger instance gets a unique id field value,
@@ -54,7 +96,7 @@ func TestServiceContainer_AlwaysNew(t *testing.T) {
 	logger := &mockLogger{}
 	container := NewServiceContainer(logger)
 
-	serviceType := reflect.TypeOf((*Logger)(nil)).Elem()
+	serviceType := reflect.TypeOf((*contracts.Logger)(nil)).Elem()
 	container.RegisterAlwaysNew(serviceType, func(c *ServiceContainer) (interface{}, error) {
 		// Use atomic.AddInt64() to safely generate unique IDs across goroutines.
 		// This ensures each mockLogger instance gets a unique id field value,
@@ -84,7 +126,7 @@ func TestServiceContainer_ScopedResource(t *testing.T) {
 	logger := &mockLogger{}
 	container := NewServiceContainer(logger)
 
-	serviceType := reflect.TypeOf((*Logger)(nil)).Elem()
+	serviceType := reflect.TypeOf((*contracts.Logger)(nil)).Elem()
 	container.RegisterScopedResource(serviceType, func(c *ServiceContainer) (interface{}, error) {
 		// Use atomic.AddInt64() to safely generate unique IDs across goroutines.
 		// This ensures each mockLogger instance gets a unique id field value,
@@ -134,7 +176,7 @@ func TestServiceContainer_Unregistered(t *testing.T) {
 	logger := &mockLogger{}
 	container := NewServiceContainer(logger)
 
-	serviceType := reflect.TypeOf((*Logger)(nil)).Elem()
+	serviceType := reflect.TypeOf((*contracts.Logger)(nil)).Elem()
 	_, err := container.Get(serviceType)
 	if err == nil {
 		t.Error("should return error for unregistered service")
@@ -145,7 +187,7 @@ func TestServiceContainer_ConcurrentAccess(t *testing.T) {
 	logger := &mockLogger{}
 	container := NewServiceContainer(logger)
 
-	serviceType := reflect.TypeOf((*Logger)(nil)).Elem()
+	serviceType := reflect.TypeOf((*contracts.Logger)(nil)).Elem()
 	container.RegisterSharedResource(serviceType, func(c *ServiceContainer) (interface{}, error) {
 		time.Sleep(10 * time.Millisecond)
 		return &mockLogger{}, nil

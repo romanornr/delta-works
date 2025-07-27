@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/romanornr/delta-works/internal/container"
+	"github.com/romanornr/delta-works/internal/contracts"
 	"github.com/thrasher-corp/gocryptotrader/currency"
 	exchange "github.com/thrasher-corp/gocryptotrader/exchanges"
 	"github.com/thrasher-corp/gocryptotrader/exchanges/asset"
@@ -12,13 +12,13 @@ import (
 
 // WithdrawalService handles withdrawal operations with dependency injection
 type withdrawalService struct {
-	engine container.EngineService
-	repo   container.RepositoryService
-	logger container.Logger
+	engine contracts.EngineService
+	repo   contracts.RepositoryService
+	logger contracts.Logger
 }
 
 // NewWithdrawalService creates a new withdrawal service
-func NewWithdrawalService(engine container.EngineService, repo container.RepositoryService, logger container.Logger) container.WithdrawalService {
+func NewWithdrawalService(engine contracts.EngineService, repo contracts.RepositoryService, logger contracts.Logger) contracts.WithdrawalService {
 	return &withdrawalService{
 		engine: engine,
 		repo:   repo,

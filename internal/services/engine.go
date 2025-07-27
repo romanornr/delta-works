@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/romanornr/delta-works/internal/container"
+	"github.com/romanornr/delta-works/internal/contracts"
 	"github.com/thrasher-corp/gocryptotrader/currency"
 	"github.com/thrasher-corp/gocryptotrader/engine"
 	exchange "github.com/thrasher-corp/gocryptotrader/exchanges"
@@ -19,7 +19,7 @@ import (
 // It also provides a thread-safe way to access the engine and implements the interface
 type engineService struct {
 	bot     *engine.Engine
-	logger  container.Logger
+	logger  contracts.Logger
 	running bool
 	mu      sync.RWMutex
 }
@@ -28,10 +28,10 @@ type engineService struct {
 // This is used to abstract the exchange operations from the rest of the application
 type exchangeService struct {
 	exchange exchange.IBotExchange
-	logger   container.Logger
+	logger   contracts.Logger
 }
 
-func NewEngineService(settings *engine.Settings, flagset map[string]bool, logger container.Logger) (container.EngineService, error) {
+func NewEngineService(settings *engine.Settings, flagset map[string]bool, logger contracts.Logger) (contracts.EngineService, error) {
 	bot, err := engine.NewFromSettings(settings, flagset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create engine: %w", err)
@@ -44,7 +44,7 @@ func NewEngineService(settings *engine.Settings, flagset map[string]bool, logger
 }
 
 // GetExchangeByName returns the exchange by name
-func (e *engineService) GetExchangeByName(name string) (container.ExchangeService, error) {
+func (e *engineService) GetExchangeByName(name string) (contracts.ExchangeService, error) {
 	exchange, err := e.bot.GetExchangeByName(name)
 	if err != nil {
 		return nil, fmt.Errorf("exchange %s not found: %w", name, err)
@@ -125,9 +125,9 @@ func (e *engineService) IsRunning() bool {
 
 // GetExchanges returns looped through exchanges and returns them as a slice of ExchangeService
 // This is used to get all exchanges registered in the engine
-func (e *engineService) GetExchanges() []container.ExchangeService {
+func (e *engineService) GetExchanges() []contracts.ExchangeService {
 	exchanges := e.bot.GetExchanges()
-	result := make([]container.ExchangeService, len(exchanges))
+	result := make([]contracts.ExchangeService, len(exchanges))
 
 	for i, exchange := range exchanges {
 		result[i] = &exchangeService{

@@ -5,10 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/romanornr/delta-works/internal/logger"
-	exchange "github.com/thrasher-corp/gocryptotrader/exchanges"
 	"strings"
 	"time"
+
+	exchange "github.com/thrasher-corp/gocryptotrader/exchanges"
 )
 
 const (
@@ -43,7 +43,7 @@ func (q *QuestDBRepository) StoreWithdrawal(ctx context.Context, exchangeName st
 	lastTimeStamp, err := q.getLastWithdrawalTimestamp(ctx, exchangeName)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			logger.Error().Err(err).Str("exchange", exchangeName).Msg("failed to get last withdrawal timestamp")
+			q.logger.Error().Err(err).Str("exchange", exchangeName).Msg("failed to get last withdrawal timestamp")
 		}
 		// Fallback to zero time if any error occurs (including sql.ErrNoRows, which is implicitly handled here)
 		lastTimeStamp = time.Time{} // No previous withdrawals found, start from zero time
@@ -100,7 +100,7 @@ func (q *QuestDBRepository) StoreWithdrawal(ctx context.Context, exchangeName st
 	}
 
 	if insertCount > 0 {
-		logger.Info().
+		q.logger.Info().
 			Str("exchange", exchangeName).
 			Int("records", insertCount).
 			Msg("stored withdrawal data")
@@ -124,13 +124,13 @@ func (q *QuestDBRepository) getLastWithdrawalTimestamp(ctx context.Context, exch
 	err := q.db.QueryRowContext(ctx, query).Scan(&lastTimestamp)
 	if err != nil {
 		if strings.Contains(err.Error(), "table does not exist") {
-			logger.Info().Msg("Withdrawals table does not exist. This might be the initial sync.")
+			q.logger.Info().Msg("Withdrawals table does not exist. This might be the initial sync.")
 			return time.Time{}, nil // Return zero time for initial sync
 		}
 		if err == sql.ErrNoRows {
 			return time.Time{}, nil // No withdrawals found, return zero time
 		}
-		logger.Error().Err(err).Str("exchange", exchangeName).Msg("failed to get last withdrawal timestamp")
+		q.logger.Error().Err(err).Str("exchange", exchangeName).Msg("failed to get last withdrawal timestamp")
 		return time.Time{}, fmt.Errorf("failed to get last withdrawal timestamp: %w", err)
 	}
 

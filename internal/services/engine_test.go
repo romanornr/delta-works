@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/romanornr/delta-works/internal/container"
+	"github.com/romanornr/delta-works/internal/contracts"
 	"github.com/thrasher-corp/gocryptotrader/currency"
 	"github.com/thrasher-corp/gocryptotrader/engine"
 	exchange "github.com/thrasher-corp/gocryptotrader/exchanges"
@@ -26,19 +26,19 @@ type mockLogEvent struct {
 	err    error
 }
 
-func (m *mockLogger) Info() container.LogEvent {
+func (m *mockLogger) Info() contracts.LogEvent {
 	return &mockLogEvent{logger: m, level: "INFO"}
 }
 
-func (m *mockLogger) Debug() container.LogEvent {
+func (m *mockLogger) Debug() contracts.LogEvent {
 	return &mockLogEvent{logger: m, level: "DEBUG"}
 }
 
-func (m *mockLogger) Warn() container.LogEvent {
+func (m *mockLogger) Warn() contracts.LogEvent {
 	return &mockLogEvent{logger: m, level: "WARN"}
 }
 
-func (m *mockLogger) Error() container.LogEvent {
+func (m *mockLogger) Error() contracts.LogEvent {
 	return &mockLogEvent{logger: m, level: "ERROR"}
 }
 
@@ -50,8 +50,16 @@ func (e *mockLogEvent) Msgf(format string, v ...interface{}) {
 	e.logger.logs = append(e.logger.logs, fmt.Sprintf("[%s] %s", e.level, format))
 }
 
-func (e *mockLogEvent) Err(err error) container.LogEvent {
+func (e *mockLogEvent) Err(err error) contracts.LogEvent {
 	return &mockLogEvent{logger: e.logger, level: e.level, err: err}
+}
+
+func (e *mockLogEvent) Str(key, value string) contracts.LogEvent {
+	return e
+}
+
+func (e *mockLogEvent) Int(key string, value int) contracts.LogEvent {
+	return e
 }
 
 func TestEngineService(t *testing.T) {
@@ -78,15 +86,15 @@ func TestEngineService(t *testing.T) {
 }
 
 func TestEngineService_InterfaceCompliance(t *testing.T) {
-	var _ container.EngineService = (*engineService)(nil)
-	var _ container.ExchangeService = (*exchangeService)(nil)
+	var _ contracts.EngineService = (*engineService)(nil)
+	var _ contracts.ExchangeService = (*exchangeService)(nil)
 
 	t.Log("Engine service interface compliance test passed")
 }
 
 // mockEngineService for testing
 type mockEngineService struct {
-	logger  container.Logger
+	logger  contracts.Logger
 	running bool
 }
 
@@ -106,14 +114,14 @@ func (m *mockEngineService) IsRunning() bool {
 	return m.running
 }
 
-func (m *mockEngineService) GetExchanges() []container.ExchangeService {
-	return []container.ExchangeService{
+func (m *mockEngineService) GetExchanges() []contracts.ExchangeService {
+	return []contracts.ExchangeService{
 		&mockExchangeService{name: "bybit"},
 		&mockExchangeService{name: "binance"},
 	}
 }
 
-func (m *mockEngineService) GetExchangeByName(name string) (container.ExchangeService, error) {
+func (m *mockEngineService) GetExchangeByName(name string) (contracts.ExchangeService, error) {
 	exchanges := m.GetExchanges()
 	for _, exchange := range exchanges {
 		if exchange.GetName() == name {
@@ -212,7 +220,7 @@ func TestWithdrawalService_FetchWithdrawalHistory(t *testing.T) {
 }
 
 func TestWithdrawalService_InterfaceCompliance(t *testing.T) {
-	var _ container.WithdrawalService = (*withdrawalService)(nil)
+	var _ contracts.WithdrawalService = (*withdrawalService)(nil)
 	t.Log("Withdrawal service interface compliance verified")
 }
 

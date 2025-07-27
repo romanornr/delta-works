@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/romanornr/delta-works/internal/container"
+	"github.com/romanornr/delta-works/internal/contracts"
 	"github.com/romanornr/delta-works/internal/models"
 	"github.com/shopspring/decimal"
 	"github.com/thrasher-corp/gocryptotrader/currency"
@@ -14,7 +14,7 @@ import (
 )
 
 func TestRepositoryService_interfaceCompliance(t *testing.T) {
-	var _ container.RepositoryService = (*repositoryService)(nil)
+	var _ contracts.RepositoryService = (*repositoryService)(nil)
 	t.Log("Repository service interface compliance verified")
 }
 

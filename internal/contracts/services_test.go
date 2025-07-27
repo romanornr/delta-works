@@ -1,4 +1,4 @@
-package container
+package contracts
 
 import (
 	"context"
@@ -129,6 +129,12 @@ func (m *mockLogEvent) Msgf(format string, args ...interface{}) {}
 func (m *mockLogEvent) Err(err error) LogEvent {
 	return m
 }
+func (m *mockLogEvent) Str(key, value string) LogEvent {
+	return m
+}
+func (m *mockLogEvent) Int(key string, value int) LogEvent {
+	return m
+}
 
 // Compile-time interface compliance checks
 var _EngineService = (*mockEngineService)(nil)
@@ -160,6 +166,14 @@ func TestInterfaceCompliance(t *testing.T) {
 
 	if logger.Info() == nil {
 		t.Error("mock logger Info() should not return nil")
+	}
+
+	if logger.Info().Str("test", "test") == nil {
+		t.Error("mock logger Info().Str() should not return nil")
+	}
+
+	if logger.Info().Int("test", 1) == nil {
+		t.Error("mock logger Info().Int() should not return nil")
 	}
 
 	// Verify all interface variables are properly assigned (this should always pass)
