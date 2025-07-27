@@ -4,7 +4,6 @@ import (
 	"reflect"
 
 	"github.com/romanornr/delta-works/internal/contracts"
-	"github.com/romanornr/delta-works/internal/logger"
 	"github.com/romanornr/delta-works/internal/services"
 	"github.com/thrasher-corp/gocryptotrader/engine"
 )
@@ -21,7 +20,7 @@ func (sr *serviceRegistration) RegisterAllServices(settings *engine.Settings, fl
 	// Register logger as shared resource
 	loggerType := reflect.TypeOf((*contracts.Logger)(nil)).Elem()
 	sr.container.RegisterSharedResource(loggerType, func(sc *ServiceContainer) (interface{}, error) {
-		return logger.New(), nil
+		return NewDefaultLogger(), nil
 	})
 
 	// Register repository as shared resource
