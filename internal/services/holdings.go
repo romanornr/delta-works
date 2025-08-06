@@ -163,14 +163,15 @@ func (h *holdingsService) updateAllExchanges(ctx context.Context) {
 func (h *holdingsService) Stop(ctx context.Context) error {
 	if h.cancel != nil {
 		h.cancel()
-	}
 
-	select {
-	case <-h.done:
-		h.logger.Info().Msg("Holdings service stopped")
-	case <-ctx.Done():
-		return fmt.Errorf("timeout waiting for holdings service to stop")
+		select {
+		case <-h.done:
+			h.logger.Info().Msg("Holdings service stopped")
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for holdings service to stop")
+		}
 	}
+	// If never started, just return nil
 	return nil
 }
 
