@@ -54,8 +54,6 @@ func main() {
 	flag.BoolVar(&settings.EnableGRPC, "grpc", true, "enables the grpc server")
 	flag.BoolVar(&settings.EnableGRPCProxy, "grpcproxy", false, "enables the grpc proxy server")
 	flag.BoolVar(&settings.EnableGRPCShutdown, "grpcshutdown", false, "enables gRPC bot instance shutdown functionality")
-	flag.BoolVar(&settings.EnableWebsocketRPC, "websocketrpc", true, "enables the websocket RPC server")
-	flag.BoolVar(&settings.EnableDeprecatedRPC, "deprecatedrpc", true, "enables the deprecated RPC server")
 	flag.BoolVar(&settings.EnableCommsRelayer, "enablecommsrelayer", true, "enables available communications relayer")
 	flag.BoolVar(&settings.Verbose, "verbose", true, "increases logging verbosity for GoCryptoTrader") // set to false for production
 	flag.BoolVar(&settings.EnableFuturesTracking, "enablefuturestracking", true, "tracks futures orders PNL is supported by the exchange")
@@ -152,7 +150,7 @@ func main() {
 	defer cancel()
 
 	go func() {
-		interrupt := signaler.WaitForInterrupt()
+		interrupt := <-signaler.WaitForInterrupt()
 		logger.Info().Msgf("Captured %v, shutdown requested.\n", interrupt)
 		cancel() // cancel the context to stop the engine and all its routines
 	}()
@@ -256,7 +254,7 @@ func main() {
 	// Setup a channel for second interrupt
 	secondInterrupt := make(chan struct{}, 1)
 	go func() {
-		interrupt := signaler.WaitForInterrupt()
+		interrupt := <-signaler.WaitForInterrupt()
 		logger.Info().Msgf("Captured %v, second shutdown requested.\n", interrupt)
 		secondInterrupt <- struct{}{}
 	}()
@@ -288,7 +286,7 @@ func main() {
 }
 
 func waitForInterrupt(cancel context.CancelFunc, waiter chan<- struct{}) {
-	interrupt := signaler.WaitForInterrupt()
+	interrupt := <-signaler.WaitForInterrupt()
 	logger.Info().Msgf("Captured %v, shutdown requested.\n", interrupt)
 	cancel() // cancel the context to stop the engine and all its routines
 	waiter <- struct{}{}

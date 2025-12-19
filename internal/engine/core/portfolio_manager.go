@@ -24,7 +24,7 @@ func GetPortfolioCurrencies(ctx context.Context) ([]currency.Code, error) {
 
 	// Iterate over each exchange to fetch account information and collect unique currencies
 	for _, exch := range engine.Bot.GetExchanges() {
-		accountInfo, err := exch.UpdateAccountInfo(ctx, asset.Spot)
+		subAccounts, err := exch.UpdateAccountBalances(ctx, asset.Spot)
 		if err != nil {
 			return nil, fmt.Errorf("failed to update account info for %s: %w", exch.GetName(), err)
 		}
@@ -33,16 +33,16 @@ func GetPortfolioCurrencies(ctx context.Context) ([]currency.Code, error) {
 		logger.Debug().Msgf("Processing portfolio currencies for exchange: %s", exch.GetName())
 
 		// collect currencies with non-zero balances
-		for _, account := range accountInfo.Accounts {
-			for _, balance := range account.Currencies {
+		for _, subAcct := range subAccounts {
+			for curr, balance := range subAcct.Balances {
 				// DEBUG: Log all balances being checked
 				logger.Debug().Msgf("Checking balance for %s: Total=%f, Free=%f, Hold=%f",
-					balance.Currency.String(), balance.Total, balance.Free, balance.Hold)
+					curr.String(), balance.Total, balance.Free, balance.Hold)
 
 				if balance.Total > 0 {
-					uniqueCurrencies[balance.Currency] = struct{}{}
+					uniqueCurrencies[curr] = struct{}{}
 					logger.Debug().Msgf("Added %s to portfolio currencies (Total: %f)",
-						balance.Currency.String(), balance.Total)
+						curr.String(), balance.Total)
 				}
 			}
 		}

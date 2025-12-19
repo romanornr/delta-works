@@ -37,7 +37,7 @@ func (dm *DepositManager) FetchDepositHistory(ctx context.Context, exchangeName 
 		return fmt.Errorf("exchange %s not found", exchangeName)
 	}
 
-	b := bybit.Bybit{}
+	b := bybit.Exchange{}
 	err = b.VerifyAPICredentials(exch.GetDefaultCredentials())
 	if err != nil {
 		return fmt.Errorf("failed to verify API credentials for %s: %v", exchangeName, err)

@@ -13,8 +13,8 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/thrasher-corp/gocryptotrader/currency"
 	"github.com/thrasher-corp/gocryptotrader/engine"
+	"github.com/thrasher-corp/gocryptotrader/exchange/accounts"
 	exchange "github.com/thrasher-corp/gocryptotrader/exchanges"
-	"github.com/thrasher-corp/gocryptotrader/exchanges/account"
 	"github.com/thrasher-corp/gocryptotrader/exchanges/asset"
 )
 
@@ -56,7 +56,7 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 		return fmt.Errorf("exchange %s not found", exchangeName)
 	}
 
-	accountInfo, err := exch.UpdateAccountInfo(ctx, accountType)
+	subAccounts, err := exch.UpdateAccountBalances(ctx, accountType)
 	if err != nil {
 		return fmt.Errorf("failed to update account info for %s %s: %v", exchangeName, accountType, err)
 	}
@@ -72,8 +72,8 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 	var wg sync.WaitGroup
 	// Calculate buffer size more safely
 	bufferSize := 0
-	for _, a := range accountInfo.Accounts {
-		bufferSize += len(a.Currencies)
+	for _, subAcct := range subAccounts {
+		bufferSize += len(subAcct.Balances)
 	}
 	if bufferSize == 0 {
 		bufferSize = 10 // default buffer size
@@ -82,10 +82,10 @@ func (h *HoldingsManager) UpdateHoldings(ctx context.Context, exchangeName strin
 	balanceChan := make(chan models.AssetBalance, bufferSize)
 	errChan := make(chan error, bufferSize)
 
-	for _, a := range accountInfo.Accounts {
-		for _, balance := range a.Currencies {
+	for _, subAcct := range subAccounts {
+		for _, balance := range subAcct.Balances {
 			wg.Add(1)
-			go func(balance account.Balance) {
+			go func(balance accounts.Balance) {
 				defer wg.Done()
 
 				amount := decimal.NewFromFloat(balance.Total)

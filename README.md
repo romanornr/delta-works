@@ -56,6 +56,8 @@ Delta OEMS features including real-time market data, order management, and portf
 
 [ ] Web-based dashboard
 
+[ ] Grid bots - Automated grid trading strategies for range-bound markets
+
 
 
 Current Directory structure (WIP):

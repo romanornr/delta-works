@@ -37,7 +37,7 @@ func SetupExchangePairs(ctx context.Context) error {
 	logger.Info().Msgf("Portfolio currencies detected for pair setup: %v", portfolioCurrencies)
 
 	for _, exch := range exchanges {
-		err = exch.UpdateTradablePairs(ctx, false)
+		err = exch.UpdateTradablePairs(ctx)
 		if err != nil {
 			logger.Warn().Msgf(logUpdatePairsError, exch.GetName(), err)
 			continue
