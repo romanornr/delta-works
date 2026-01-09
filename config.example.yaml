@@ -1,0 +1,105 @@
+# Application Configuration Example
+# Copy this file to config.yaml and modify as needed.
+#
+# Environment Variable Override
+# -----------------------------
+# Environment variables override file values using the prefix defined in
+# internal/config/config.go (EnvPrefix constant). Default prefix: DELTAWORKS
+#
+# Format: {PREFIX}_{SETTING_NAME}
+# Example: DELTAWORKS_LOG_LEVEL=debug overrides logging.level
+#
+# To rebrand: Change the EnvPrefix constant in config.go - all env vars
+# will automatically use the new prefix.
+
+# Application settings
+app:
+  # Application name (used in logs)
+  # Env: {PREFIX}_APP_NAME
+  name: deltaworks
+
+  # Graceful shutdown timeout
+  # Env: {PREFIX}_APP_SHUTDOWN_TIMEOUT
+  shutdown_timeout: 30s
+
+# Logging configuration
+logging:
+  # Minimum log level: trace, debug, info, warn, error, fatal, panic
+  # Env: {PREFIX}_LOG_LEVEL
+  level: info
+
+  # Output format: console (human-readable) or json (structured)
+  # Env: {PREFIX}_LOG_FORMAT
+  format: console
+
+# GoCryptoTrader settings
+gct:
+  # Path to GCT config file. Empty uses default (~/.gocryptotrader/config.json)
+  # Env: {PREFIX}_GCT_CONFIG_PATH
+  config_path: ""
+
+  # Enable verbose GCT logging
+  # Env: {PREFIX}_GCT_VERBOSE
+  verbose: false
+
+  grpc:
+    # Enable GCT gRPC server
+    # Env: {PREFIX}_GCT_GRPC_ENABLED
+    enabled: true
+
+  websocket:
+    # Enable GCT WebSocket connections
+    # Env: {PREFIX}_GCT_WS_ENABLED
+    enabled: true
+
+# QuestDB connection settings
+questdb:
+  http:
+    # QuestDB HTTP/ILP address for writing data
+    # Env: {PREFIX}_QUESTDB_HTTP_ADDR
+    address: localhost:9000
+
+  postgres:
+    # QuestDB PostgreSQL wire protocol settings for queries
+    # Env: {PREFIX}_QUESTDB_PG_HOST
+    host: localhost
+
+    # Env: {PREFIX}_QUESTDB_PG_PORT
+    port: 8812
+
+    # Env: {PREFIX}_QUESTDB_PG_USER
+    user: admin
+
+    # Env: {PREFIX}_QUESTDB_PG_PASS
+    password: quest
+
+    # Env: {PREFIX}_QUESTDB_PG_DB
+    database: qdb
+
+# Portfolio observation settings
+portfolio:
+  observation:
+    # How often to capture portfolio snapshots
+    # Env: {PREFIX}_PORTFOLIO_INTERVAL
+    interval: 10m
+
+    # List of exchanges to observe
+    # Note: Environment variable override uses comma-separated values
+    exchanges:
+      - bybit
+
+    # List of account types to observe
+    # Common values: spot, margin, futures, funding
+    accounts:
+      - spot
+
+# Transfer tracking settings
+transfers:
+  sync:
+    # Enable automatic transfer synchronization
+    # Env: {PREFIX}_TRANSFERS_SYNC_ENABLED
+    enabled: true
+
+    # How far back to sync transfers on startup
+    # Env: {PREFIX}_TRANSFERS_LOOKBACK
+    lookback: 720h  # 30 days
