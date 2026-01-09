@@ -80,10 +80,14 @@ var (
 // IsNotFound returns true if the error is a "not found" type error.
 // This is useful for handling missing data gracefully.
 func IsNotFound(err error) bool {
-	return errors.Is(err, ErrExchangeNotFound) ||
-		errors.Is(err, ErrAccountNotFound) ||
-		errors.Is(err, ErrNoSnapshotsFound) ||
-		errors.Is(err, ErrNoTransfersFound) ||
-		errors.Is(err, ErrTickerNotFound) ||
-		errors.Is(err, ErrConfigNotFound)
+	switch {
+	case errors.Is(err, ErrExchangeNotFound),
+		errors.Is(err, ErrAccountNotFound),
+		errors.Is(err, ErrNoSnapshotsFound),
+		errors.Is(err, ErrNoTransfersFound),
+		errors.Is(err, ErrTickerNotFound),
+		errors.Is(err, ErrConfigNotFound):
+		return true
+	}
+	return false
 }
