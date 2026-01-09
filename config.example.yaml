@@ -71,7 +71,7 @@ questdb:
     user: admin
 
     # Env: {PREFIX}_QUESTDB_PG_PASS
-    password: quest
+    password: pass
 
     # Env: {PREFIX}_QUESTDB_PG_DB
     database: qdb
