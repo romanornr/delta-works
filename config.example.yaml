@@ -67,6 +67,17 @@ questdb:
     # QuestDB HTTP/ILP address for writing data
     # Env: {PREFIX}_QUESTDB_HTTP_ADDR
     address: localhost:9000
+
+    # SSRF protection: by default, the host part of `address` must match one of
+    # the entries in allowed_hosts.
+    #
+    # Remote deployment:
+    # - Set `address` to your remote QuestDB host
+    # - Add that host to `allowed_hosts`
+    #
+    # Opt-out (not recommended): disable host validation explicitly.
+    # Env: {PREFIX}_QUESTDB_HTTP_VALIDATE_HOST
+    validate_host: true
     allowed_hosts:
       - localhost
       - 127.0.0.1

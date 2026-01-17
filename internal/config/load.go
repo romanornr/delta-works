@@ -47,9 +47,12 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	// Validate QuestDB HTTP config (SSRF protection)
-	if err := cfg.QuestDB.HTTP.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid questdb config: %w", err)
+	// Normalize config values
+	cfg.Normalize()
+
+	// validate entire config
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
 	return &cfg, nil
@@ -74,6 +77,7 @@ func setDefaults(v *viper.Viper) {
 
 	// QuestDB defaults
 	v.SetDefault("questdb.http.address", "localhost:9000")
+	v.SetDefault("questdb.http.validate_host", true)
 	v.SetDefault("questdb.http.allowed_hosts", []string{"localhost", "127.0.0.1"})
 	v.SetDefault("questdb.postgres.host", "localhost")
 	v.SetDefault("questdb.postgres.port", 8812)
@@ -118,6 +122,7 @@ func bindEnvVars(v *viper.Viper) {
 
 	// QuestDB
 	_ = v.BindEnv("questdb.http.address", env("QUESTDB_HTTP_ADDR"))
+	_ = v.BindEnv("questdb.http.validate_host", env("QUESTDB_HTTP_VALIDATE_HOST"))
 	_ = v.BindEnv("questdb.postgres.host", env("QUESTDB_PG_HOST"))
 	_ = v.BindEnv("questdb.postgres.port", env("QUESTDB_PG_PORT"))
 	_ = v.BindEnv("questdb.postgres.user", env("QUESTDB_PG_USER"))
