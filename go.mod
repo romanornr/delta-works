@@ -4,6 +4,7 @@ go 1.25.5
 
 require (
 	github.com/rs/zerolog v1.34.0
+	github.com/shopspring/decimal v1.4.0
 	github.com/spf13/viper v1.21.0
 	go.uber.org/fx v1.24.0
 )
