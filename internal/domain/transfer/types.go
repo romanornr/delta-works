@@ -38,7 +38,7 @@ type Transfer struct {
 	ID          string          `json:"id"`
 	Exchange    string          `json:"exchange"`
 	Direction   Direction       `json:"direction"`
-	Type        Type            `json:"type"`
+	Type        Type            `json:"transfer_type"`
 	Asset       string          `json:"asset"`
 	Amount      decimal.Decimal `json:"amount"`
 	Fee         decimal.Decimal `json:"fee"`

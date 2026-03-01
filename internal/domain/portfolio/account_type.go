@@ -11,7 +11,7 @@ const (
 	AccountFutures AccountType = "futures"
 )
 
-// Valid reports whether the account is type is recognized
+// Valid reports whether the account type is recognized.
 func (a AccountType) Valid() bool {
 	switch a {
 	case AccountSpot, AccountMargin, AccountFutures:
@@ -21,12 +21,12 @@ func (a AccountType) Valid() bool {
 	}
 }
 
-// Strings returns the string representation of the account type
+// String returns the string representation of the account type.
 func (a AccountType) String() string {
 	return string(a)
 }
 
-// ParseAccountType parses a string into an AccountType
+// ParseAccountType parses a string into an AccountType.
 func ParseAccountType(s string) (AccountType, error) {
 	at := AccountType(s)
 	if !at.Valid() {
