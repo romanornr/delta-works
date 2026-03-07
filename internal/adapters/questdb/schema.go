@@ -54,8 +54,6 @@ CREATE TABLE IF NOT EXISTS transfers (
 `
 
 // EnsureSchema creates all required QuestDB tables if they do not already exist.
-// It is called once during client initialization to guarantee the schema is ready
-// before any reads or writes.
 func EnsureSchema(ctx context.Context, db *sql.DB) error {
 	ddls := []struct {
 		name string
