@@ -16,7 +16,7 @@ type SnapshotStore struct {
 
 // Write persists a portfolio snapshot via ILP
 //
-// We store snapshot metadata and positions separately:
+// We store snapshot metadata and holdings separately:
 // - portfolio_snapshots: 1 row per snapshot
 // - portfolio_positions: 1 row per asset position
 func (s *SnapshotStore) Write(ctx context.Context, snap portfolio.Snapshot) error {
@@ -30,8 +30,8 @@ func (s *SnapshotStore) Write(ctx context.Context, snap portfolio.Snapshot) erro
 		return fmt.Errorf("failed to write snapshot metadata: exchange=%s, account=%s: %w", snap.Exchange, snap.Account.String(), err)
 	}
 
-	// Positions
-	for _, pos := range snap.Positions {
+	// Holdings
+	for _, pos := range snap.Holdings {
 		sender := s.client.sender.Table("portfolio_positions").
 			Symbol("exchange", snap.Exchange).
 			Symbol("account", snap.Account.String()).
@@ -48,7 +48,7 @@ func (s *SnapshotStore) Write(ctx context.Context, snap portfolio.Snapshot) erro
 			DecimalColumnFromString("value_usd", pos.Value.String())
 
 		if err := sender.At(ctx, snap.CapturedAt); err != nil {
-			return fmt.Errorf("failed to write position exchange %s, account %s, asset %s: %w", snap.Exchange, snap.Account.String(), pos.Asset, err)
+			return fmt.Errorf("failed to write holding exchange %s, account %s, asset %s: %w", snap.Exchange, snap.Account.String(), pos.Asset, err)
 		}
 	}
 

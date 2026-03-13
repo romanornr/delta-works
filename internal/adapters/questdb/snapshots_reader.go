@@ -81,7 +81,7 @@ WHERE exchange = $1 AND account = $2 AND captured_at = $3`,
 		capturedAt,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query snapshot positions [exchange=%s account=%s captured_at=%s]: %w", exchange, account.String(), capturedAt.Format(time.RFC3339Nano), err)
+		return nil, fmt.Errorf("failed to query snapshot holdings [exchange=%s account=%s captured_at=%s]: %w", exchange, account.String(), capturedAt.Format(time.RFC3339Nano), err)
 	}
 	defer rows.Close()
 
@@ -91,10 +91,10 @@ WHERE exchange = $1 AND account = $2 AND captured_at = $3`,
 		var asset string
 		var total, available, locked, awb, borrow, value sql.NullString
 		if err := rows.Scan(&asset, &total, &available, &locked, &awb, &borrow, &value); err != nil {
-			return nil, fmt.Errorf("failed to scan position row [exchange=%s account=%s captured_at=%s]: %w", exchange, account.String(), capturedAt.Format(time.RFC3339Nano), err)
+			return nil, fmt.Errorf("failed to scan holding row [exchange=%s account=%s captured_at=%s]: %w", exchange, account.String(), capturedAt.Format(time.RFC3339Nano), err)
 		}
 
-		pos := portfolio.Position{Asset: asset}
+		pos := portfolio.Holding{Asset: asset}
 		if total.Valid {
 			pos.Total, err = decimal.NewFromString(total.String)
 			if err != nil {
@@ -132,13 +132,13 @@ WHERE exchange = $1 AND account = $2 AND captured_at = $3`,
 			}
 		}
 
-		snap.AddPosition(pos)
+		snap.AddHolding(pos)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate snapshot positions [exchange=%s account=%s captured_at=%s]: %w", exchange, account.String(), capturedAt.Format(time.RFC3339Nano), err)
+		return nil, fmt.Errorf("failed to iterate snapshot holdings [exchange=%s account=%s captured_at=%s]: %w", exchange, account.String(), capturedAt.Format(time.RFC3339Nano), err)
 	}
 
-	if len(snap.Positions) == 0 {
+	if len(snap.Holdings) == 0 {
 		return nil, errs.ErrNoSnapshotsFound
 	}
 

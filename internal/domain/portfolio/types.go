@@ -6,8 +6,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Position represents a single asset holding within a portfolio.
-type Position struct {
+// Holding represents a single asset holding within a portfolio.
+type Holding struct {
 	Asset                  string          `json:"asset"`
 	Total                  decimal.Decimal `json:"total"`
 	Available              decimal.Decimal `json:"available"`
@@ -17,8 +17,8 @@ type Position struct {
 	Value                  decimal.Decimal `json:"value"`
 }
 
-func NewPosition(asset string, total, available, locked, availableWithoutBorrow, borrow, value decimal.Decimal) Position {
-	return Position{
+func NewHolding(asset string, total, available, locked, availableWithoutBorrow, borrow, value decimal.Decimal) Holding {
+	return Holding{
 		Asset:                  asset,
 		Total:                  total,
 		Available:              available,
@@ -30,47 +30,47 @@ func NewPosition(asset string, total, available, locked, availableWithoutBorrow,
 }
 
 // IsZero reports whether the total balance is zero
-func (p Position) IsZero() bool {
-	return p.Total.IsZero()
+func (h Holding) IsZero() bool {
+	return h.Total.IsZero()
 }
 
 // Snapshot captures the complete portfolio state at a moment in time
 type Snapshot struct {
-	Exchange   string              `json:"exchange"`
-	Account    AccountType         `json:"account"`
-	Positions  map[string]Position `json:"positions"` // asset to position
-	TotalValue decimal.Decimal     `json:"total_value"`
-	CapturedAt time.Time           `json:"captured_at"`
+	Exchange   string             `json:"exchange"`
+	Account    AccountType        `json:"account"`
+	Holdings   map[string]Holding `json:"holdings"` // asset to holding
+	TotalValue decimal.Decimal    `json:"total_value"`
+	CapturedAt time.Time          `json:"captured_at"`
 }
 
 func NewSnapshot(exchange string, account AccountType, capturedAt time.Time) *Snapshot {
 	return &Snapshot{
 		Exchange:   exchange,
 		Account:    account,
-		Positions:  make(map[string]Position),
+		Holdings:   make(map[string]Holding),
 		CapturedAt: capturedAt,
 	}
 }
 
-// AddPosition adds a position to the snapshot and updates the total value
-func (s *Snapshot) AddPosition(pos Position) {
-	s.Positions[pos.Asset] = pos
-	s.TotalValue = s.TotalValue.Add(pos.Value)
+// AddHolding adds a holding to the snapshot and updates the total value
+func (s *Snapshot) AddHolding(holding Holding) {
+	s.Holdings[holding.Asset] = holding
+	s.TotalValue = s.TotalValue.Add(holding.Value)
 }
 
-// GetPosition returns the position for a specific asset
-func (s *Snapshot) GetPosition(asset string) (Position, bool) {
-	pos, ok := s.Positions[asset]
-	return pos, ok
+// GetHolding returns the holding for a specific asset
+func (s *Snapshot) GetHolding(asset string) (Holding, bool) {
+	holding, ok := s.Holdings[asset]
+	return holding, ok
 }
 
-// NonZeroPositions returns a slice of positions that are non-zero total
-func (s *Snapshot) NonZeroPositions() []Position {
-	result := make([]Position, 0, len(s.Positions))
+// NonZeroHoldings returns a slice of holdings that are non-zero total
+func (s *Snapshot) NonZeroHoldings() []Holding {
+	result := make([]Holding, 0, len(s.Holdings))
 
-	for _, p := range s.Positions {
-		if !p.IsZero() {
-			result = append(result, p)
+	for _, holding := range s.Holdings {
+		if !holding.IsZero() {
+			result = append(result, holding)
 		}
 	}
 	return result
@@ -78,9 +78,9 @@ func (s *Snapshot) NonZeroPositions() []Position {
 
 // Assets returns a list of all assets in the snapshot
 func (s *Snapshot) Assets() []string {
-	assets := make([]string, 0, len(s.Positions))
+	assets := make([]string, 0, len(s.Holdings))
 
-	for asset := range s.Positions {
+	for asset := range s.Holdings {
 		assets = append(assets, asset)
 	}
 	return assets
