@@ -7,7 +7,8 @@ import (
 	"github.com/romanornr/delta-works/internal/domain/transfer"
 )
 
-func (s *TransferStore) Write(ctx context.Context, t transfer.Transfer) error {
+// writeOne queues a single transfer row on the QuestDB ILP sender without flushing.
+func (s *TransferStore) writeOne(ctx context.Context, t transfer.Transfer) error {
 	sender := s.client.sender.Table("transfers").
 		Symbol("exchange", t.Exchange).
 		Symbol("direction", string(t.Direction)).
@@ -26,6 +27,14 @@ func (s *TransferStore) Write(ctx context.Context, t transfer.Transfer) error {
 		return fmt.Errorf("failed to write transfer for exchange %s, direction %s, and id %s: %w", t.Exchange, t.Direction, t.ID, err)
 	}
 
+	return nil
+}
+
+func (s *TransferStore) Write(ctx context.Context, t transfer.Transfer) error {
+	if err := s.writeOne(ctx, t); err != nil {
+		return err
+	}
+
 	if err := s.client.sender.Flush(ctx); err != nil {
 		return fmt.Errorf("failed to flush transfer write for exchange %s, direction %s, and id %s: %w", t.Exchange, t.Direction, t.ID, err)
 	}
@@ -36,9 +45,14 @@ func (s *TransferStore) Write(ctx context.Context, t transfer.Transfer) error {
 // WriteBatch persists a batch of transfers
 func (s *TransferStore) WriteBatch(ctx context.Context, transfers []transfer.Transfer) error {
 	for _, t := range transfers {
-		if err := s.Write(ctx, t); err != nil {
+		if err := s.writeOne(ctx, t); err != nil {
 			return err
 		}
 	}
+
+	if err := s.client.sender.Flush(ctx); err != nil {
+		return fmt.Errorf("failed to flush transfer batch with %d transfers: %w", len(transfers), err)
+	}
+
 	return nil
 }
