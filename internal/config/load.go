@@ -123,6 +123,7 @@ func bindEnvVars(v *viper.Viper) {
 	// QuestDB
 	_ = v.BindEnv("questdb.http.address", env("QUESTDB_HTTP_ADDR"))
 	_ = v.BindEnv("questdb.http.validate_host", env("QUESTDB_HTTP_VALIDATE_HOST"))
+	_ = v.BindEnv("questdb.http.allowed_hosts", env("QUESTDB_HTTP_ALLOWED_HOSTS"))
 	_ = v.BindEnv("questdb.postgres.host", env("QUESTDB_PG_HOST"))
 	_ = v.BindEnv("questdb.postgres.port", env("QUESTDB_PG_PORT"))
 	_ = v.BindEnv("questdb.postgres.user", env("QUESTDB_PG_USER"))

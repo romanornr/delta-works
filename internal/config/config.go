@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -82,10 +83,6 @@ type QuestDBPGConfig struct {
 
 // Validate checks that the address host is in the allowlist.
 func (c *QuestDBHTTPConfig) Validate() error {
-	if !c.ValidateHost {
-		return nil
-	}
-
 	host, port, err := net.SplitHostPort(c.Address)
 	if err != nil {
 		return fmt.Errorf("invalid address format %s: %w", c.Address, err)
@@ -95,13 +92,27 @@ func (c *QuestDBHTTPConfig) Validate() error {
 		return fmt.Errorf("invalid port %s: %w", port, err)
 	}
 
+	host = normalizeQuestDBHost(host)
+
+	if !c.ValidateHost {
+		return fmt.Errorf("validate_host=false is not supported; use allowed_hosts: [\"*\"] for explicit opt-out")
+	}
+
 	for _, allowedHost := range c.AllowedHosts {
-		if host == allowedHost {
+		normalizedAllowedHost := normalizeQuestDBHost(allowedHost)
+		if normalizedAllowedHost == "*" {
+			return nil
+		}
+		if host == normalizedAllowedHost {
 			return nil
 		}
 	}
 
 	return fmt.Errorf("host not in allowlist [host=%s allowed=%v]", host, c.AllowedHosts)
+}
+
+func normalizeQuestDBHost(host string) string {
+	return strings.ToLower(strings.TrimSpace(strings.Trim(host, "[]")))
 }
 
 // LineSenderURI returns the ILP HTTP URI for QuestDB line sender.
@@ -111,15 +122,18 @@ func (c *QuestDBConfig) LineSenderURI() string {
 
 // PostgresConnStr returns the PostgreSQL connection string for QuestDB queries.
 func (c *QuestDBConfig) PostgresConnStr() string {
-	return fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		c.Postgres.Host,
-		c.Postgres.Port,
-		c.Postgres.User,
-		c.Postgres.Password,
-		c.Postgres.Database,
-		c.Postgres.SSLMode,
-	)
+	query := url.Values{}
+	query.Set("sslmode", c.Postgres.SSLMode)
+
+	postgresURL := &url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(c.Postgres.User, c.Postgres.Password),
+		Host:     net.JoinHostPort(c.Postgres.Host, strconv.Itoa(c.Postgres.Port)),
+		Path:     c.Postgres.Database,
+		RawQuery: query.Encode(),
+	}
+
+	return postgresURL.String()
 }
 
 // PortfolioConfig contains portfolio observation settings.
@@ -202,6 +216,10 @@ func (c *Config) Validate() error {
 func (c *Config) Normalize() {
 	c.Logging.Level = strings.ToLower(c.Logging.Level)
 	c.Logging.Format = strings.ToLower(c.Logging.Format)
+	c.QuestDB.HTTP.Address = strings.TrimSpace(c.QuestDB.HTTP.Address)
+	for i, host := range c.QuestDB.HTTP.AllowedHosts {
+		c.QuestDB.HTTP.AllowedHosts[i] = normalizeQuestDBHost(host)
+	}
 
 	for i, exch := range c.Portfolio.Observation.Exchanges {
 		c.Portfolio.Observation.Exchanges[i] = strings.ToLower(exch)

@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/romanornr/delta-works/internal/domain/exchange"
 	"github.com/romanornr/delta-works/internal/errs"
+	"github.com/romanornr/delta-works/internal/exchange"
 	"github.com/rs/zerolog"
 )
 
@@ -15,15 +15,15 @@ type exchangeRegistry struct {
 	exchanges map[string]exchange.Exchange
 }
 
-// NewRegistry returns a Registry built from the exchanges loaded by the engine
+// NewRegistry returns a Registry built from the exchanges loaded by the engine.
 func NewRegistry(engine *Engine, log zerolog.Logger) (exchange.Registry, error) {
 	if engine == nil {
-		return nil, fmt.Errorf("failed to create exchange registry: %w", errs.ErrAdapterNotReady)
+		return nil, fmt.Errorf("failed to create registry: %w", errs.ErrAdapterNotReady)
 	}
 
 	exchanges, err := engine.GetExchanges()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create exchange registry: %w", err)
+		return nil, fmt.Errorf("failed to get exchanges for registry: %w", err)
 	}
 
 	registry := &exchangeRegistry{
@@ -47,8 +47,7 @@ func (r *exchangeRegistry) Get(exchangeName string) (exchange.Exchange, error) {
 	if r == nil {
 		return nil, fmt.Errorf("failed to get exchange adapter: %w", errs.ErrAdapterNotReady)
 	}
-
-	name := strings.ToLower(strings.ToLower(exchangeName))
+	name := strings.ToLower(strings.TrimSpace(exchangeName))
 	adapter, ok := r.exchanges[name]
 	if !ok {
 		return nil, fmt.Errorf("failed to get exchange adapter for %s: %w", exchangeName, errs.ErrExchangeNotFound)
@@ -64,11 +63,11 @@ func (r *exchangeRegistry) All() []exchange.Exchange {
 	}
 
 	names := r.Names()
-	result := make([]exchange.Exchange, 0, len(names))
+	exchanges := make([]exchange.Exchange, 0, len(names))
 	for _, name := range names {
-		result = append(result, r.exchanges[name])
+		exchanges = append(exchanges, r.exchanges[name])
 	}
-	return result
+	return exchanges
 }
 
 // Names returns all registered exchange names in sorted order
