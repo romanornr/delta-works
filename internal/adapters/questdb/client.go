@@ -7,6 +7,7 @@ package questdb
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -82,16 +83,21 @@ func (c *Client) Ping(ctx context.Context) error {
 // Close flushes any pending ILP rows and closes the sender and DB connections.
 // QuestDB's docs recommend explicitly flushing before closing to ensure retries are applied consistently
 func (c *Client) Close(ctx context.Context) error {
+	var closeErrs []error
+
 	if err := c.sender.Flush(ctx); err != nil {
 		c.log.Error().Err(err).Msg("failed to flush questdb line sender")
+		closeErrs = append(closeErrs, fmt.Errorf("failed to flush questdb line sender: %w", err))
 	}
 
 	if err := c.sender.Close(ctx); err != nil {
 		c.log.Error().Err(err).Msg("failed to close questdb line sender")
+		closeErrs = append(closeErrs, fmt.Errorf("failed to close questdb line sender: %w", err))
 	}
 
 	if err := c.db.Close(); err != nil {
-		return fmt.Errorf("failed to close questdb postgres connection: %w", err)
+		closeErrs = append(closeErrs, fmt.Errorf("failed to close questdb postgres connection: %w", err))
 	}
-	return nil
+
+	return errors.Join(closeErrs...)
 }
