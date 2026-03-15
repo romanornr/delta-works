@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/romanornr/delta-works/internal/domain/exchange"
 	"github.com/romanornr/delta-works/internal/domain/market"
 	"github.com/romanornr/delta-works/internal/domain/portfolio"
 	"github.com/romanornr/delta-works/internal/errs"
@@ -20,8 +21,8 @@ type exchangeAdapter struct {
 	log  zerolog.Logger
 }
 
-// NewExchangeAdapter returns an ExchangeAdapter for one exchange.
-func NewExchangeAdapter(exch gctexchange.IBotExchange, log zerolog.Logger) ExchangeAdapter {
+// NewExchange returns an exchange.Exchange for one exchange
+func NewExchange(exch gctexchange.IBotExchange, log zerolog.Logger) exchange.Exchange {
 	return &exchangeAdapter{
 		exch: exch,
 		log:  log,
