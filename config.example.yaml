@@ -68,16 +68,20 @@ questdb:
     # Env: {PREFIX}_QUESTDB_HTTP_ADDR
     address: localhost:9000
 
-    # SSRF protection: by default, the host part of `address` must match one of
-    # the entries in allowed_hosts.
+    # SSRF protection: the host part of `address` must match one of the entries
+    # in allowed_hosts unless you opt out explicitly with ["*"].
     #
     # Remote deployment:
     # - Set `address` to your remote QuestDB host
     # - Add that host to `allowed_hosts`
     #
-    # Opt-out (not recommended): disable host validation explicitly.
+    # Explicit opt-out (not recommended): set allowed_hosts to ["*"].
+    # validate_host=false is no longer accepted because it disables the
+    # protection too implicitly.
     # Env: {PREFIX}_QUESTDB_HTTP_VALIDATE_HOST
     validate_host: true
+
+    # Env: {PREFIX}_QUESTDB_HTTP_ALLOWED_HOSTS
     allowed_hosts:
       - localhost
       - 127.0.0.1

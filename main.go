@@ -32,7 +32,7 @@ func main() {
 		}),
 	)
 
-	xmrPos := portfolio.NewPosition(
+	xmrPos := portfolio.NewHolding(
 		"xmr",
 		decimal.New(100, 0), // total
 		decimal.New(100, 0), // available
@@ -42,7 +42,7 @@ func main() {
 		decimal.New(0, 0),   // value
 	)
 
-	btcPos := portfolio.NewPosition(
+	btcPos := portfolio.NewHolding(
 		"BTC",
 		decimal.New(120, 0), // total
 		decimal.New(100, 0), // available
@@ -55,11 +55,11 @@ func main() {
 	fmt.Printf("isNonzero %v", xmrPos.IsZero())
 
 	snap := portfolio.NewSnapshot("kraken", portfolio.AccountSpot, time.Now())
-	snap.AddPosition(xmrPos)
+	snap.AddHolding(xmrPos)
 
-	snap.AddPosition(btcPos)
+	snap.AddHolding(btcPos)
 
-	fmt.Printf("non zero: %s", snap.NonZeroPositions())
+	fmt.Printf("non zero: %s", snap.NonZeroHoldings())
 
 	app.Run()
 
