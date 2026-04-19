@@ -1,6 +1,8 @@
 .idea/*
 .env
-private_docs/*
+_local/
+plans/
+archive/
 tls/
 cmd/**/tls/
 config.yml
