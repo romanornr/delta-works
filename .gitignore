@@ -1,7 +1,5 @@
 .idea/*
 .env
-.clinerules/
-memory-bank/*
 private_docs/*
 tls/
 cmd/**/tls/
