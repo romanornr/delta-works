@@ -14,9 +14,9 @@ import (
 )
 
 // Latest returns the most recent snapshot for the given exchange and account
-// If no snapshot exists, it returns errs.ErrNoSnapshotsFouns
+// If no snapshot exists, it returns errs.ErrNoSnapshotsFound
 func (s *SnapshotStore) Latest(ctx context.Context, exchange string, account portfolio.AccountType) (*portfolio.Snapshot, error) {
-	var capturedAt time.Time
+	var capturedAt sql.NullTime
 
 	row := s.client.db.QueryRowContext(ctx, `SELECT max(captured_at) FROM portfolio_snapshots WHERE exchange = $1 and account = $2`, exchange, account.String())
 
@@ -24,11 +24,11 @@ func (s *SnapshotStore) Latest(ctx context.Context, exchange string, account por
 		return nil, fmt.Errorf("failed to query latest snapshot timestamp: exchange=%s, account=%s: %w", exchange, account.String(), err)
 	}
 
-	if capturedAt.IsZero() {
+	if !capturedAt.Valid || capturedAt.Time.IsZero() {
 		return nil, errs.ErrNoSnapshotsFound
 	}
 
-	return s.loadSnapshotAt(ctx, exchange, account, capturedAt)
+	return s.loadSnapshotAt(ctx, exchange, account, capturedAt.Time)
 }
 
 // Range returns all snapshots for the given exchange and account within the inclusive time range [from, to]
@@ -45,7 +45,7 @@ func (s *SnapshotStore) Range(ctx context.Context, exchange string, account port
 	if err != nil {
 		return nil, fmt.Errorf("failed to query snapshots range [exchange %s account %s]: %w", exchange, account.String(), err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []portfolio.Snapshot
 	for rows.Next() {
@@ -61,7 +61,7 @@ func (s *SnapshotStore) Range(ctx context.Context, exchange string, account port
 		out = append(out, *snap)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate snaoshot timestamps [exchange %s account %s]: %w", exchange, account.String(), err)
+		return nil, fmt.Errorf("failed to iterate snapshot timestamps [exchange %s account %s]: %w", exchange, account.String(), err)
 	}
 
 	if len(out) == 0 {
@@ -83,7 +83,7 @@ WHERE exchange = $1 AND account = $2 AND captured_at = $3`,
 	if err != nil {
 		return nil, fmt.Errorf("failed to query snapshot holdings [exchange=%s account=%s captured_at=%s]: %w", exchange, account.String(), capturedAt.Format(time.RFC3339Nano), err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	snap := portfolio.NewSnapshot(exchange, account, capturedAt)
 

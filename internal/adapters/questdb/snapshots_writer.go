@@ -20,17 +20,8 @@ type SnapshotStore struct {
 // - portfolio_snapshots: 1 row per snapshot
 // - portfolio_positions: 1 row per asset position
 func (s *SnapshotStore) Write(ctx context.Context, snap portfolio.Snapshot) error {
-	// Snapshot metadata
-	err := s.client.sender.Table("portfolio_snapshots").
-		Symbol("exchange", snap.Exchange).
-		Symbol("account", snap.Account.String()).
-		DecimalColumnFromString("total_value", snap.TotalValue.String()).
-		At(ctx, snap.CapturedAt)
-	if err != nil {
-		return fmt.Errorf("failed to write snapshot metadata: exchange=%s, account=%s: %w", snap.Exchange, snap.Account.String(), err)
-	}
-
-	// Holdings
+	// Write holdings before metadata. ILP writes are not transactional; with the
+	// metadata row last, readers can treat metadata as the snapshot completion marker.
 	for _, pos := range snap.Holdings {
 		sender := s.client.sender.Table("portfolio_positions").
 			Symbol("exchange", snap.Exchange).
@@ -50,6 +41,14 @@ func (s *SnapshotStore) Write(ctx context.Context, snap portfolio.Snapshot) erro
 		if err := sender.At(ctx, snap.CapturedAt); err != nil {
 			return fmt.Errorf("failed to write holding exchange %s, account %s, asset %s: %w", snap.Exchange, snap.Account.String(), pos.Asset, err)
 		}
+	}
+
+	if err := s.client.sender.Table("portfolio_snapshots").
+		Symbol("exchange", snap.Exchange).
+		Symbol("account", snap.Account.String()).
+		DecimalColumnFromString("total_value", snap.TotalValue.String()).
+		At(ctx, snap.CapturedAt); err != nil {
+		return fmt.Errorf("failed to write snapshot metadata: exchange=%s, account=%s: %w", snap.Exchange, snap.Account.String(), err)
 	}
 
 	return s.client.sender.Flush(ctx)

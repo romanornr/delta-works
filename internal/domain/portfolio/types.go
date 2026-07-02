@@ -54,6 +54,9 @@ func NewSnapshot(exchange string, account AccountType, capturedAt time.Time) *Sn
 
 // AddHolding adds a holding to the snapshot and updates the total value
 func (s *Snapshot) AddHolding(holding Holding) {
+	if existing, ok := s.Holdings[holding.Asset]; ok {
+		s.TotalValue = s.TotalValue.Sub(existing.Value)
+	}
 	s.Holdings[holding.Asset] = holding
 	s.TotalValue = s.TotalValue.Add(holding.Value)
 }

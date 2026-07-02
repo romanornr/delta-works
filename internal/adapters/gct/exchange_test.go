@@ -104,6 +104,9 @@ func TestExchangeAdapterFetchHoldingsMapSpotBalances(t *testing.T) {
 	}
 
 	n2, err := decimal.NewFromString("0.5")
+	if err != nil {
+		t.Fatalf("failed to parse decimal: %v", err)
+	}
 	if !holdings[0].Locked.Equal(n2) {
 		t.Fatalf("expected holding locked to be 0.5, got %s", holdings[0].Locked)
 	}

@@ -45,18 +45,19 @@ ORDER BY completed_at`,
 	if err != nil {
 		return nil, fmt.Errorf("failed to query transfers for exchange %s from %s to %s: %w", exchange, from.Format(time.RFC3339), to.Format(time.RFC3339), err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []transfer.Transfer
 	for rows.Next() {
 		var t transfer.Transfer
 		var direction, typ, status string
 
-		if err := rows.Scan(&t.Exchange, &direction, &typ, &t.Asset, &t.Amount, &t.Fee, &status, &t.Network, &t.TxHash, &t.Address, &t.BankTo, &t.Direction, &t.Description, &t.CompletedAt); err != nil {
+		if err := rows.Scan(&t.Exchange, &direction, &typ, &t.Asset, &t.Amount, &t.Fee, &status, &t.Network, &t.TxHash, &t.Address, &t.BankTo, &t.Description, &t.CompletedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan transfer row for exchange %s from %s to %s: %w", exchange, from.Format(time.RFC3339), to.Format(time.RFC3339), err)
 		}
 		t.Direction = transfer.Direction(direction)
 		t.Type = transfer.Type(typ)
+		t.Status = transfer.Status(status)
 		out = append(out, t)
 	}
 

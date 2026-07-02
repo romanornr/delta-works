@@ -39,7 +39,7 @@ func (a *exchangeAdapter) Name() string {
 
 // SupportedAccounts returns the account types supported in the first pass
 func (a *exchangeAdapter) SupportedAccounts() []string {
-	return []string{"spot"}
+	return []string{portfolio.AccountSpot.String()}
 }
 
 // FetchTicker returns market data for trading pairs

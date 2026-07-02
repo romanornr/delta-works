@@ -78,6 +78,9 @@ func (e *Engine) Stop(ctx context.Context) error {
 	if e == nil || e.bot == nil {
 		return nil
 	}
+	if !e.Ready() {
+		return nil
+	}
 
 	select {
 	case <-ctx.Done():

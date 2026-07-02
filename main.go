@@ -52,14 +52,14 @@ func main() {
 		decimal.New(0, 0),   // value
 	)
 
-	fmt.Printf("isNonzero %v", xmrPos.IsZero())
+	fmt.Printf("isZero: %v\n", xmrPos.IsZero())
 
 	snap := portfolio.NewSnapshot("kraken", portfolio.AccountSpot, time.Now())
 	snap.AddHolding(xmrPos)
 
 	snap.AddHolding(btcPos)
 
-	fmt.Printf("non zero: %s", snap.NonZeroHoldings())
+	fmt.Printf("non zero: %v\n", snap.NonZeroHoldings())
 
 	app.Run()
 
