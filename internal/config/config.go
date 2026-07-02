@@ -101,8 +101,8 @@ func (c Config) Validate() error {
 		if len(v.Accounts) == 0 {
 			errs = append(errs, fmt.Errorf("venues.%s.accounts: at least one account required", name))
 		}
-		if (v.APIKey == "") != (v.APISecret == "") {
-			errs = append(errs, fmt.Errorf("venues.%s: api_key and api_secret must be set together", name))
+		if v.APIKey == "" || v.APISecret == "" {
+			errs = append(errs, fmt.Errorf("venues.%s: api_key and api_secret are required for an enabled venue; balance snapshots authenticate", name))
 		}
 	}
 	return errors.Join(errs...)

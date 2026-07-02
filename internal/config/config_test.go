@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -37,6 +38,7 @@ venues:
 	t.Setenv("DELTA__LOG__FORMAT", "json")
 	t.Setenv("DELTA__VENUES__BYBIT__API_KEY", "k123")
 	t.Setenv("DELTA__VENUES__BYBIT__API_SECRET", "s456")
+	t.Setenv("DELTA__VENUES__BYBIT__ACCOUNTS", "spot, margin")
 
 	cfg, err := Load(path, true)
 	if err != nil {
@@ -59,6 +61,9 @@ venues:
 		if tt.got != tt.want {
 			t.Errorf("%s: got %v, want %v", tt.name, tt.got, tt.want)
 		}
+	}
+	if accounts := cfg.Venues["bybit"].Accounts; !slices.Equal(accounts, []string{"spot", "margin"}) {
+		t.Errorf("env accounts list: got %v, want [spot margin]", accounts)
 	}
 }
 
@@ -101,6 +106,12 @@ func TestValidateRejectsBadValues(t *testing.T) {
 			c.Venues = map[string]Venue{"x": {
 				Enabled: true, Accounts: []string{"spot"},
 				Rate: Rate{RPS: 1, Burst: 1}, APIKey: "k",
+			}}
+		}},
+		{"enabled venue without credentials", func(c *Config) {
+			c.Venues = map[string]Venue{"x": {
+				Enabled: true, Accounts: []string{"spot"},
+				Rate: Rate{RPS: 1, Burst: 1},
 			}}
 		}},
 	}

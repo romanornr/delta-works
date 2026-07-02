@@ -1,7 +1,8 @@
 # Copy to config.yaml (gitignored) and adjust.
 # Any key can be overridden via environment: DELTA__SECTION__KEY
 # e.g. DELTA__LOG__LEVEL=debug, DELTA__POSTGRES__DSN=...
-# Secrets (venue API keys) are env-only, never in this file:
+# Secrets (venue API keys) are env-only, never in this file. An enabled
+# venue requires both, since balance snapshots authenticate:
 #   DELTA__VENUES__BYBIT__API_KEY / DELTA__VENUES__BYBIT__API_SECRET
 
 log:

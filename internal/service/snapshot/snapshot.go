@@ -26,6 +26,10 @@ import (
 // SubjectTaken is published after a snapshot is durably checkpointed.
 const SubjectTaken = "snapshot.taken"
 
+// recordTimeout bounds the checkpoint write that runs on a detached context
+// after a successful series flush.
+const recordTimeout = 5 * time.Second
+
 // Target is one (venue, account) pair to poll.
 type Target struct {
 	Venue   instrument.VenueID
@@ -155,9 +159,14 @@ func (s *Service) snapshot(ctx context.Context, t Target) error {
 		return s.record(ctx, checkpoint)
 	}
 
+	// The rows are durable in the series store now. Shutdown must not cancel
+	// the checkpoint that anchors them, or gap detection would report a gap
+	// where data exists, so the write gets a detached bounded context.
+	recordCtx, recordCancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
+	defer recordCancel()
 	checkpoint.Status = ports.CheckpointOK
 	checkpoint.BalanceCount = len(snap.NonZero())
-	if err := s.record(ctx, checkpoint); err != nil {
+	if err := s.record(recordCtx, checkpoint); err != nil {
 		return err
 	}
 

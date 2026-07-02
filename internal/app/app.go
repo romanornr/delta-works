@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
@@ -28,7 +29,13 @@ import (
 	"github.com/romanornr/delta-works/internal/telemetry"
 )
 
-// New composes the deltad application.
+// startupTimeout bounds constructor-time network work (venue setup, store
+// connections, migrations). fx providers run outside lifecycle hooks, so
+// without this a black-holed endpoint would hang the daemon before it can
+// expose health or exit for its supervisor.
+const startupTimeout = 30 * time.Second
+
+// New composes the application.
 func New(configPath string, configExplicit bool) *fx.App {
 	return fx.New(
 		fx.WithLogger(newFxLogger),
@@ -62,10 +69,12 @@ func New(configPath string, configExplicit bool) *fx.App {
 // and wraps it in the standard resilience stack (rate limit + breaker).
 func newExchangeRegistry(cfg config.Config, l log.Logger) (exchange.Registry, error) {
 	logger := log.Component(l, "exchange")
+	ctx, cancel := context.WithTimeout(context.Background(), startupTimeout)
+	defer cancel()
 	var exchanges []ports.Exchange
 	for _, name := range cfg.EnabledVenues() {
 		venueCfg := cfg.Venues[name]
-		ex, err := gct.New(context.Background(), name, venueCfg)
+		ex, err := gct.New(ctx, name, venueCfg)
 		if err != nil {
 			return nil, err
 		}
@@ -77,7 +86,9 @@ func newExchangeRegistry(cfg config.Config, l log.Logger) (exchange.Registry, er
 }
 
 func newPostgres(lc fx.Lifecycle, cfg config.Config) (*pgxpool.Pool, error) {
-	pool, err := postgres.Connect(context.Background(), cfg.Postgres)
+	ctx, cancel := context.WithTimeout(context.Background(), startupTimeout)
+	defer cancel()
+	pool, err := postgres.Connect(ctx, cfg.Postgres)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +100,9 @@ func newPostgres(lc fx.Lifecycle, cfg config.Config) (*pgxpool.Pool, error) {
 }
 
 func newQuestDB(lc fx.Lifecycle, cfg config.Config) (ports.SeriesWriter, error) {
-	w, err := questdb.New(context.Background(), cfg.QuestDB)
+	ctx, cancel := context.WithTimeout(context.Background(), startupTimeout)
+	defer cancel()
+	w, err := questdb.New(ctx, cfg.QuestDB)
 	if err != nil {
 		return nil, err
 	}
@@ -198,5 +211,5 @@ func logStartup(cfg config.Config, l log.Logger) {
 	l.Info().
 		Strs("venues", cfg.EnabledVenues()).
 		Dur("snapshot_interval", cfg.Snapshot.Interval).
-		Msg("deltad starting")
+		Msg("starting")
 }
