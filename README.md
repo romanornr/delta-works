@@ -1,151 +1,70 @@
 # Delta Works
 
-Delta Works is an order execution system (OEMS) for managing and executing orders across multiple exchanges.
-Algorithmic trading strategies can be implemented and sophisticated order routing and execution logic can be defined.
+Delta Works v3 is a Go application for portfolio observation and transfer tracking across cryptocurrency exchanges.
+It captures holdings over time, syncs transfer history, and stores data in QuestDB for analysis and Grafana-style visualization.
 
-Built using [GoCryptoTrader](https://github.com/thrasher-corp/gocryptotrader)
-Delta OEMS features including real-time market data, order management, and portfolio tracking.
+This repo is not currently an OEMS / trading-strategy system. The canonical scope is:
+- periodic portfolio snapshots
+- exchange transfer synchronization
+- clean adapter boundaries for QuestDB and GoCryptoTrader
+- an app/runtime skeleton built with Uber Fx
 
-## Features
-### Holdings Management
+## Current status
 
-[x] Real-time tracking of account holdings across multiple exchanges
+The project is in an adapter-first phase.
+The QuestDB storage adapter and GoCryptoTrader exchange adapter are the active integration surfaces, with dev probes under `cmd/` used to validate assumptions before more app-layer orchestration is added.
 
-[x] Support for different account types (spot, margin, futures)
+See:
+- `docs/current-state.md`
+- `docs/architecture.md`
+- `docs/code-conventions.md`
+- `AGENTS.md`
 
-[x] Automatic holdings updates at configurable intervals
+## Quick start
 
-[x] Storage of historical holdings data in QuestDB
-
-### Withdrawal Management
-
-[x] Fetch and store withdrawal history from supported exchanges
-
-[x] Batch processing of withdrawal records
-
-[x] Duplicate prevention using timestamp-based tracking
-
-[x] Efficient storage in QuestDB with proper handling of initial sync
-
-[x] Support for all withdrawal types (crypto and fiat)
-
-### Grafana intergration 
-[x] Portfolio tracking and visualization
-
-[x] Holdings and withdrawal data visualization
-
-
-### WIP 
-[ ] Order management
-
-[ ] Algorithmic trading strategies
-
-[ ] Order routing and execution logic
-
-[ ] Arbitrage opportunities
-
-[ ] Twap and Vwap order execution
-
-[ ] iceberg orders
-
-[ ] Stop-loss and take-profit orders
-
-[ ] Backtesting and simulation
-
-[ ] REST and Websocket API
-
-[ ] Web-based dashboard
-
-[ ] Grid bots - Automated grid trading strategies for range-bound markets
-
-
-
-Current Directory structure (WIP):
-```
-deltaworks/
-├── cmd/
-│   └── main.go                 # Application entry point
-├── internal/
-│   ├── core/
-│   │   ├── core.go            # Core engine functionality
-│   │   ├── holdings_manager.go # Holdings management
-│   │   ├── withdrawal_manager.go # Withdrawal operations
-│   │   ├── exchange_setup.go  # Exchange configuration
-│   │   └── portfolio_manager.go # Portfolio management
-│   ├── models/
-│   │   ├── holdings.go        # Data models for holdings
-│   │   └── withdrawal.go      # Data models for withdrawals
-│   ├── repository/
-│   │   ├── questdb_repository.go # Base QuestDB operations
-│   │   ├── holdings.go        # Holdings storage operations
-│   │   └── withdrawals.go     # Withdrawal storage operations
-│   └── logger/
-│       └── logger.go          # Logging configuration
-├── config/
-│   └── config.json           # Application configuration
-├── scripts/
-│   └── init_questdb.sql      # Database initialization scripts
-├── grafana/
-│   ├── dashboards/
-│   │   ├── holdings.json     # Holdings visualization
-│   │   └── withdrawals.json  # Withdrawal visualization
-│   └── queries/
-│       ├── holdings_queries.sql
-│       └── withdrawal_queries.sql
-└── docs/
-    └── API.md                # API documentation
+```bash
+cp config.example.yaml config.yaml
+go test ./...
+go run main.go
 ```
 
-old:
-```
-deltaWorks/
-├── cmd/
-│   └── main.go
-├── internal/
-│   ├── delta/
-│   │   ├── core.go
-│   │   └── core_test.go
-│   ├── config/
-│   │   ├── config.go
-│   │   └── config_test.go
-│   ├── exchange/
-│   │   ├── exchange.go
-│   │   ├── binance.go
-│   │   ├── coinbase.go
-│   │   └── exchange_test.go
-│   ├── strategy/
-│   │   ├── strategy.go
-│   │   ├── simple_strategy.go
-│   │   └── strategy_test.go
-│   ├── order/
-│   │   ├── order.go
-│   │   └── order_test.go
-│   ├── portfolio/
-│   │   ├── portfolio.go
-│   │   └── portfolio_test.go
-│   └── util/
-│       ├── logger.go
-│       └── math.go
-├── pkg/
-│   └── indicator/
-│       ├── indicator.go
-│       ├── moving_average.go
-│       └── rsi.go
-├── config/
-│   └── config.json
-├── scripts/
-│   ├── backtest.sh
-│   └── deploy.sh
-├── docs/
-│   ├── README.md
-│   └── API.md
-├── go.mod
-└── go.sum
+## Useful commands
+
+```bash
+go test ./...
+go vet ./...
+go build ./...
+go run ./cmd/devprobe-questdb
+go run ./cmd/devprobe-storage
+go run ./cmd/devprobe-gct
 ```
 
-Dependencies
+## Repository layout
 
-- **[GoCryptoTrader](https://github.com/thrasher-corp/gocryptotrader)**: Core trading functionality
-- **QuestDB**: Time-series database for data storage
-- **Zerolog**: Structured logging
-- **Chi**: HTTP routing (if applicable)
+```text
+internal/
+  config/          configuration loading and validation
+  observability/   zerolog wiring
+  clock/           time abstraction
+  clocktest/       deterministic test clock
+  errs/            sentinel errors
+  domain/          portfolio, market, transfer domain types
+  storage/         persistence ports
+  adapters/
+    questdb/       QuestDB-backed storage adapter
+    gct/           GoCryptoTrader-backed exchange adapter
+cmd/
+  devprobe-*/      integration and boundary probes
+  learn/           repo-local learning / experimentation commands
+```
+
+## Configuration
+
+- Example config: `config.example.yaml`
+- Local config: `config.yaml` or `config.yml` (gitignored)
+- Override path: `DELTAWORKS_CONFIG_PATH=/path/to/config.yaml`
+
+## Planning notes
+
+Private planning material remains under `private_docs/` and is intentionally not the canonical public repo guidance.
+The canonical repo guidance now lives in `README.md`, `docs/`, and `AGENTS.md`.

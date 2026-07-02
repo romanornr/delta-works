@@ -1,2 +1,11 @@
 .idea/*
 .env
+_local/
+plans/
+private_docs/
+archive/
+tls/
+cmd/**/tls/
+config.yaml
+config.yml
+.gitnexus

@@ -32,6 +32,15 @@ logging:
   # Env: {PREFIX}_LOG_FORMAT
   format: console
 
+  # Time format for console output (Go time format string)
+  # Common formats:
+  #   "02/01/2006 15:04"       - European: 10/01/2026 15:04
+  #   "01/02/2006 15:04"       - US: 01/10/2026 15:04
+  #   "2006-01-02 15:04:05"    - ISO-like with time
+  #   "02 Jan 2006 15:04"      - With month name
+  # Env: {PREFIX}_LOG_TIME_FORMAT
+  time_format: "02/01/2006 15:04"
+
 # GoCryptoTrader settings
 gct:
   # Path to GCT config file. Empty uses default (~/.gocryptotrader/config.json)
@@ -59,6 +68,25 @@ questdb:
     # Env: {PREFIX}_QUESTDB_HTTP_ADDR
     address: localhost:9000
 
+    # SSRF protection: the host part of `address` must match one of the entries
+    # in allowed_hosts unless you opt out explicitly with ["*"].
+    #
+    # Remote deployment:
+    # - Set `address` to your remote QuestDB host
+    # - Add that host to `allowed_hosts`
+    #
+    # Explicit opt-out (not recommended): set allowed_hosts to ["*"].
+    # validate_host=false is no longer accepted because it disables the
+    # protection too implicitly.
+    # Env: {PREFIX}_QUESTDB_HTTP_VALIDATE_HOST
+    validate_host: true
+
+    # Env: {PREFIX}_QUESTDB_HTTP_ALLOWED_HOSTS
+    allowed_hosts:
+      - localhost
+      - 127.0.0.1
+      - "questdb.internal"
+
   postgres:
     # QuestDB PostgreSQL wire protocol settings for queries
     # Env: {PREFIX}_QUESTDB_PG_HOST
@@ -75,6 +103,9 @@ questdb:
 
     # Env: {PREFIX}_QUESTDB_PG_DB
     database: qdb
+
+    # Env: {PREFIX}_QUESTDB_PG_SSLMODE
+    sslmode: disable
 
 # Portfolio observation settings
 portfolio:
