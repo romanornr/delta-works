@@ -1,6 +1,7 @@
-// Package bus is the in-process event bus (ADR-0005). The interface is
-// deliberately NATS-shaped so a NATS/JetStream adapter can replace the
-// in-process implementation without touching publishers or subscribers.
+// Package bus is the in-process event bus (ADR-0005). The interface mirrors
+// NATS (subject strings, publish, prefix subscribe) so a NATS/JetStream
+// adapter can replace the in-process implementation without touching
+// publishers or subscribers.
 // Delivery is at-most-once: anything that must not be lost belongs in
 // Postgres, not on the bus.
 package bus
@@ -22,7 +23,7 @@ type Event struct {
 }
 
 // Handler consumes events. It runs on the subscriber's own goroutine and
-// must not block for long — slow handlers cause drops for that subscriber.
+// must not block for long: slow handlers cause drops for that subscriber.
 type Handler func(ctx context.Context, e Event)
 
 // Bus publishes and subscribes to events.

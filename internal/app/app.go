@@ -19,9 +19,12 @@ import (
 	"github.com/romanornr/delta-works/internal/bus"
 	"github.com/romanornr/delta-works/internal/clock"
 	"github.com/romanornr/delta-works/internal/config"
+	"github.com/romanornr/delta-works/internal/domain/account"
+	"github.com/romanornr/delta-works/internal/domain/instrument"
 	"github.com/romanornr/delta-works/internal/exchange"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
+	"github.com/romanornr/delta-works/internal/service/snapshot"
 	"github.com/romanornr/delta-works/internal/telemetry"
 )
 
@@ -48,8 +51,10 @@ func New(configPath string, configExplicit bool) *fx.App {
 			newQuestDB,
 			fx.Annotate(postgres.NewHealth, fx.As(new(ports.HealthChecker)), fx.ResultTags(`group:"health"`)),
 			fx.Annotate(newQuestDBHealth, fx.As(new(ports.HealthChecker)), fx.ResultTags(`group:"health"`)),
+			snapshot.NewMetrics,
+			newSnapshotService,
 		),
-		fx.Invoke(registerBusMetrics, startTelemetryServer, logStartup),
+		fx.Invoke(registerBusMetrics, startTelemetryServer, startSnapshotService, logStartup),
 	)
 }
 
@@ -94,6 +99,58 @@ func newQuestDB(lc fx.Lifecycle, cfg config.Config) (ports.SeriesWriter, error) 
 
 func newQuestDBHealth(cfg config.Config) *questdb.Health {
 	return questdb.NewHealth(cfg.QuestDB)
+}
+
+func newSnapshotService(
+	cfg config.Config,
+	registry exchange.Registry,
+	series ports.SeriesWriter,
+	checkpoints ports.CheckpointStore,
+	eventBus bus.Bus,
+	clk clock.Clock,
+	l log.Logger,
+	m *snapshot.Metrics,
+) *snapshot.Service {
+	var targets []snapshot.Target
+	for _, name := range cfg.EnabledVenues() {
+		for _, acct := range cfg.Venues[name].Accounts {
+			targets = append(targets, snapshot.Target{
+				Venue:   instrument.NewVenueID(name),
+				Account: account.Type(acct),
+			})
+		}
+	}
+	return snapshot.New(registry, series, checkpoints, eventBus, clk, l, cfg.Snapshot.Interval, targets, m)
+}
+
+// startSnapshotService ties the poller to the fx lifecycle. A non-nil error
+// from Run means infrastructure loss; the process exits non-zero so the
+// supervisor (compose, systemd) restarts it.
+func startSnapshotService(lc fx.Lifecycle, svc *snapshot.Service, l log.Logger, shutdowner fx.Shutdowner) {
+	logger := log.Component(l, "snapshot")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			go func() {
+				defer close(done)
+				if err := svc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+					logger.Error().Err(err).Msg("snapshot service failed")
+					_ = shutdowner.Shutdown(fx.ExitCode(1))
+				}
+			}()
+			return nil
+		},
+		OnStop: func(stopCtx context.Context) error {
+			cancel()
+			select {
+			case <-done:
+				return nil
+			case <-stopCtx.Done():
+				return stopCtx.Err()
+			}
+		},
+	})
 }
 
 func newBus(lc fx.Lifecycle) *bus.InProc {

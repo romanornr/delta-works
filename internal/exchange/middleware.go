@@ -1,6 +1,6 @@
 // Package exchange composes venue connections: adapter → rate limiter →
 // circuit breaker, registered in a Registry keyed by venue. Retries are NOT
-// here — they belong to services, so every retry attempt passes back
+// here. Retries belong to services, so every retry attempt passes back
 // through the breaker and is counted by it (ADR-0003).
 package exchange
 
@@ -17,8 +17,8 @@ import (
 )
 
 // WithRateLimit wraps an exchange so every call waits for the client-side
-// limiter first. Venue rate limits are a venue property enforced here — the
-// adapter library's internal limiter is never the only guard.
+// limiter first. Venue rate limits are a property of the venue, enforced
+// here; the adapter library's internal limiter is never the only guard.
 func WithRateLimit(ex ports.Exchange, lim *rate.Limiter) ports.Exchange {
 	return &rateLimited{ex: ex, lim: lim}
 }

@@ -1,5 +1,5 @@
 // Package log is the single construction point for zerolog. Everything else
-// imports this package and receives an injected Logger — importing zerolog
+// imports this package and receives an injected Logger. Importing zerolog
 // directly outside this package and cmd/ is denied by depguard.
 package log
 

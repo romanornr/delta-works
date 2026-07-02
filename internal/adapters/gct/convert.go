@@ -1,10 +1,10 @@
 package gct
 
 // convert.go is the single place GCT types meet domain types. GCT carries
-// prices and balances as float64; conversion to decimal here is exact for
+// prices and balances as float64; converting to decimal here is exact for
 // the float64 value received but cannot restore precision the venue lost
-// upstream. That is acceptable for market data and balance *observations* —
-// accounting truth (orders, fills, ledger) will come from venue-reported
+// upstream. That is acceptable for market data and balance observations.
+// Accounting truth (orders, fills, ledger) will come from venue-reported
 // strings in M2, never through float64.
 
 import (

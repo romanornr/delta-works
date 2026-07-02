@@ -1,5 +1,9 @@
 name: delta-works
 
+# Host ports are offset (+1 or similar) so the stack coexists with natively
+# installed Postgres (5432), QuestDB (9000/8812), Prometheus (9090) and
+# Grafana (3000). config.example.yaml points at these offset ports.
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -8,7 +12,7 @@ services:
       POSTGRES_PASSWORD: delta
       POSTGRES_DB: delta
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -20,8 +24,8 @@ services:
   questdb:
     image: questdb/questdb:latest
     ports:
-      - "9000:9000" # HTTP console + ILP over HTTP
-      - "8812:8812" # PGWire (reads)
+      - "9010:9000" # HTTP console + ILP over HTTP
+      - "8813:8812" # PGWire (reads)
     volumes:
       - questdb:/var/lib/questdb
 
@@ -29,7 +33,7 @@ services:
     image: prom/prometheus:latest
     profiles: [observability]
     ports:
-      - "9090:9090"
+      - "9091:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
 
@@ -37,7 +41,7 @@ services:
     image: grafana/grafana:latest
     profiles: [observability]
     ports:
-      - "3000:3000"
+      - "3002:3000"
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
     volumes:

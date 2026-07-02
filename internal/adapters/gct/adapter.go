@@ -1,7 +1,7 @@
 // Package gct adapts gocryptotrader to the application's ports. This is the
 // ONLY package allowed to import gocryptotrader (depguard-enforced,
 // ADR-0003). Each venue is a standalone GCT exchange configured from our
-// config — the full GCT engine (config file, database, comms, web) is never
+// config. The full GCT engine (config file, database, comms, web) is never
 // booted.
 package gct
 

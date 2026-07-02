@@ -12,10 +12,10 @@ http:
   addr: ":8080" # /metrics /healthz /readyz
 
 postgres:
-  dsn: "postgres://delta:delta@localhost:5432/delta?sslmode=disable"
+  dsn: "postgres://delta:delta@localhost:5433/delta?sslmode=disable"
 
 questdb:
-  conf: "http::addr=localhost:9000;"
+  conf: "http::addr=localhost:9010;"
 
 snapshot:
   interval: 60s

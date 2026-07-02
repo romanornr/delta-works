@@ -30,8 +30,8 @@ type Instrument struct {
 	Venue       VenueID
 	Type        Type
 	Base, Quote money.Currency
-	// VenueSymbol is the venue's native symbol, e.g. "BTCUSDT" — the
-	// round-trip key adapters use when talking to the venue.
+	// VenueSymbol is the venue's native symbol, e.g. "BTCUSDT". Adapters
+	// use it as the round-trip key when talking to the venue.
 	VenueSymbol string
 	// Rules are the venue's trading constraints. Optional in M1; required
 	// by order validation in M2.

@@ -25,7 +25,7 @@ type SeriesWriter interface {
 }
 
 // SnapshotCheckpoint is the durable record that a balance snapshot reached
-// the time-series store — the Postgres-side anchor for gap detection.
+// the time-series store. It is the Postgres-side anchor for gap detection.
 type SnapshotCheckpoint struct {
 	ID           uuid.UUID
 	Account      account.Ref
