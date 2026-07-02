@@ -9,6 +9,8 @@ package gct
 
 import (
 	"fmt"
+	"strings"
+	"unicode"
 
 	"github.com/shopspring/decimal"
 	"github.com/thrasher-corp/gocryptotrader/currency"
@@ -43,10 +45,28 @@ func toGCTAssetFromAccount(acct account.Type) (asset.Item, error) {
 	}
 }
 
-func toGCTPairAsset(inst instrument.Instrument) (currency.Pair, asset.Item, error) {
+// symbolMatcher resolves a venue-native symbol against the venue's known
+// pairs. gctexchange.IBotExchange satisfies it.
+type symbolMatcher interface {
+	MatchSymbolWithAvailablePairs(symbol string, a asset.Item, hasDelimiter bool) (currency.Pair, error)
+}
+
+// toGCTPairAsset uses VenueSymbol as the round-trip key when the instrument
+// carries one, matching it against the venue's pair list instead of guessing
+// a split. Rebuilding from Base and Quote is only the fallback for
+// instruments constructed without a venue symbol.
+func toGCTPairAsset(m symbolMatcher, inst instrument.Instrument) (currency.Pair, asset.Item, error) {
 	item, err := toGCTAsset(inst.Type)
 	if err != nil {
 		return currency.EMPTYPAIR, 0, err
+	}
+	if inst.VenueSymbol != "" {
+		hasDelimiter := strings.ContainsFunc(inst.VenueSymbol, unicode.IsPunct)
+		pair, err := m.MatchSymbolWithAvailablePairs(inst.VenueSymbol, item, hasDelimiter)
+		if err != nil {
+			return currency.EMPTYPAIR, 0, fmt.Errorf("gct: symbol %q: %w", inst.VenueSymbol, err)
+		}
+		return pair, item, nil
 	}
 	pair, err := currency.NewPairFromStrings(string(inst.Base), string(inst.Quote))
 	if err != nil {

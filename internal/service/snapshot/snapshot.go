@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
@@ -42,6 +43,7 @@ type Service struct {
 	interval    time.Duration
 	targets     []Target
 	metrics     *Metrics
+	writeMu     sync.Mutex
 }
 
 // New builds the service. Metrics must not be nil.
@@ -165,7 +167,13 @@ func (s *Service) snapshot(ctx context.Context, t Target) error {
 	return s.bus.Publish(ctx, bus.Event{Subject: SubjectTaken, At: takenAt, Payload: snap})
 }
 
+// writeSeries holds one lock across write and flush. All targets share the
+// series writer, and the writer only serializes individual calls; without
+// this lock one target's flush could carry another target's rows, so a
+// checkpoint would no longer describe its own snapshot's durability.
 func (s *Service) writeSeries(ctx context.Context, snap account.Snapshot) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	if err := s.series.WriteBalanceSnapshot(ctx, snap); err != nil {
 		return err
 	}

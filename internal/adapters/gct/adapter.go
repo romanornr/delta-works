@@ -64,7 +64,7 @@ func (e *Exchange) ID() instrument.VenueID { return e.id }
 
 // Ticker implements ports.MarketDataReader.
 func (e *Exchange) Ticker(ctx context.Context, inst instrument.Instrument) (marketdata.Ticker, error) {
-	pair, item, err := toGCTPairAsset(inst)
+	pair, item, err := toGCTPairAsset(e.exch, inst)
 	if err != nil {
 		return marketdata.Ticker{}, err
 	}

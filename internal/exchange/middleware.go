@@ -6,6 +6,8 @@ package exchange
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/sony/gobreaker/v2"
 	"golang.org/x/time/rate"
@@ -23,6 +25,11 @@ func WithRateLimit(ex ports.Exchange, lim *rate.Limiter) ports.Exchange {
 	return &rateLimited{ex: ex, lim: lim}
 }
 
+// errLimiterWait marks a failure to acquire the local rate limiter. The
+// request never left the process, so the breaker must not count it against
+// the venue.
+var errLimiterWait = errors.New("local rate limiter wait")
+
 type rateLimited struct {
 	ex  ports.Exchange
 	lim *rate.Limiter
@@ -32,21 +39,21 @@ func (r *rateLimited) ID() instrument.VenueID { return r.ex.ID() }
 
 func (r *rateLimited) Ticker(ctx context.Context, inst instrument.Instrument) (marketdata.Ticker, error) {
 	if err := r.lim.Wait(ctx); err != nil {
-		return marketdata.Ticker{}, err
+		return marketdata.Ticker{}, fmt.Errorf("%w: %w", errLimiterWait, err)
 	}
 	return r.ex.Ticker(ctx, inst)
 }
 
 func (r *rateLimited) Instruments(ctx context.Context, typ instrument.Type) ([]instrument.Instrument, error) {
 	if err := r.lim.Wait(ctx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", errLimiterWait, err)
 	}
 	return r.ex.Instruments(ctx, typ)
 }
 
 func (r *rateLimited) Balances(ctx context.Context, acct account.Type) ([]account.Balance, error) {
 	if err := r.lim.Wait(ctx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", errLimiterWait, err)
 	}
 	return r.ex.Balances(ctx, acct)
 }

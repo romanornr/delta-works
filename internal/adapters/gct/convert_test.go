@@ -21,23 +21,93 @@ func btcusdt() instrument.Instrument {
 	}
 }
 
+type fakeMatcher struct {
+	pair       currency.Pair
+	err        error
+	gotSymbol  string
+	gotHasDlim bool
+}
+
+func (f *fakeMatcher) MatchSymbolWithAvailablePairs(symbol string, _ asset.Item, hasDelimiter bool) (currency.Pair, error) {
+	f.gotSymbol, f.gotHasDlim = symbol, hasDelimiter
+	return f.pair, f.err
+}
+
 func TestToGCTPairAsset(t *testing.T) {
-	pair, item, err := toGCTPairAsset(btcusdt())
-	if err != nil {
-		t.Fatal(err)
+	dogeusdt := currency.NewPair(currency.DOGE, currency.USDT)
+
+	tests := []struct {
+		name       string
+		inst       instrument.Instrument
+		matcher    *fakeMatcher
+		wantPair   string
+		wantDelim  bool
+		wantSymbol string
+	}{
+		{
+			name: "venue symbol matched against venue pairs",
+			inst: instrument.Instrument{
+				Venue: "bybit", Type: instrument.TypeSpot,
+				Base: "DOGE", Quote: "USDT", VenueSymbol: "DOGEUSDT",
+			},
+			matcher:    &fakeMatcher{pair: dogeusdt},
+			wantPair:   "DOGEUSDT",
+			wantSymbol: "DOGEUSDT",
+		},
+		{
+			name: "delimited venue symbol flagged for the matcher",
+			inst: instrument.Instrument{
+				Venue: "kraken", Type: instrument.TypeSpot,
+				Base: "DOGE", Quote: "USDT", VenueSymbol: "DOGE-USDT",
+			},
+			matcher:    &fakeMatcher{pair: dogeusdt},
+			wantPair:   "DOGEUSDT",
+			wantDelim:  true,
+			wantSymbol: "DOGE-USDT",
+		},
+		{
+			name: "no venue symbol falls back to base and quote",
+			inst: instrument.Instrument{
+				Venue: "bybit", Type: instrument.TypeSpot,
+				Base: "BTC", Quote: "USDT",
+			},
+			matcher:  &fakeMatcher{err: currency.ErrPairNotFound},
+			wantPair: "BTCUSDT",
+		},
 	}
-	if item != asset.Spot {
-		t.Errorf("asset: got %v", item)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pair, item, err := toGCTPairAsset(tt.matcher, tt.inst)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if item != asset.Spot {
+				t.Errorf("asset: got %v", item)
+			}
+			if got := pair.Base.String() + pair.Quote.String(); got != tt.wantPair {
+				t.Errorf("pair: got %s, want %s", got, tt.wantPair)
+			}
+			if tt.matcher.gotSymbol != tt.wantSymbol {
+				t.Errorf("matched symbol: got %q, want %q", tt.matcher.gotSymbol, tt.wantSymbol)
+			}
+			if tt.matcher.gotHasDlim != tt.wantDelim {
+				t.Errorf("hasDelimiter: got %v, want %v", tt.matcher.gotHasDlim, tt.wantDelim)
+			}
+		})
 	}
-	if pair.Base.String() != "BTC" || pair.Quote.String() != "USDT" {
-		t.Errorf("pair: got %s", pair)
+}
+
+func TestToGCTPairAssetUnmatchedSymbolFails(t *testing.T) {
+	inst := btcusdt()
+	if _, _, err := toGCTPairAsset(&fakeMatcher{err: currency.ErrPairNotFound}, inst); err == nil {
+		t.Error("expected error for a venue symbol the venue does not list")
 	}
 }
 
 func TestToGCTPairAssetUnsupportedType(t *testing.T) {
 	inst := btcusdt()
 	inst.Type = "futures"
-	if _, _, err := toGCTPairAsset(inst); err == nil {
+	if _, _, err := toGCTPairAsset(&fakeMatcher{}, inst); err == nil {
 		t.Error("expected error for unsupported instrument type")
 	}
 }
