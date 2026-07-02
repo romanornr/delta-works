@@ -1,0 +1,37 @@
+language: en-US
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "!internal/adapters/postgres/sqlcgen/**"
+    - "!go.sum"
+  path_instructions:
+    - path: "internal/domain/**"
+      instructions: >-
+        Domain packages must stay pure: imports limited to the standard
+        library, sibling internal/domain packages, and shopspring/decimal.
+        Flag any other dependency.
+    - path: "internal/**"
+      instructions: >-
+        zerolog may be imported only in internal/log. Everything else
+        must use the injected log.Logger alias.
+    - path: "internal/adapters/gct/**"
+      instructions: >-
+        This is the only package allowed to import gocryptotrader.
+        Everything else must depend on internal/ports interfaces.
+    - path: "**/*.go"
+      instructions: >-
+        Monetary values must use shopspring/decimal, never float64.
+        The sole exception is the QuestDB ILP writer, which is
+        analytics output rather than accounting truth.
+        context.Context must be the first parameter of anything that
+        blocks. Tests should be table-driven.
+
+chat:
+  auto_reply: true

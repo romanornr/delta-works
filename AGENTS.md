@@ -19,13 +19,15 @@ Everything goes through `make`:
 
 ## Architecture rules (lint-enforced where possible)
 
-- **Domain packages are pure**: `internal/domain/*` imports stdlib + shopspring/decimal only.
+- **Domain packages are pure**: `internal/domain/*` imports stdlib, sibling domain packages, and shopspring/decimal only.
 - **gocryptotrader only inside `internal/adapters/gct/`** — depguard-enforced (ADR-0003). Application code depends on `internal/ports` interfaces.
 - **Money is `shopspring/decimal`, never float64** — the sole exception is the QuestDB ILP edge (analytics, not accounting truth; ADR-0004).
 - **zerolog is imported only in `internal/log` and `cmd/`** — depguard-enforced; everything else uses the injected `log.Logger` alias.
 - `context.Context` is the first parameter of anything that blocks.
 - Table-driven tests; integration tests behind `//go:build integration`; live-venue tests behind `//go:build live` (manual only, never CI).
 - Significant design choices get an ADR in `docs/adr/` in the same change.
+- **Comments**: only where the code cannot say it itself, written in plain sentences an outside developer will still understand in five years. No em-dashes, no filler ("simply", "note that", "deliberately"), no narration of what the next line does.
+- **The project may be renamed** — never scatter the brand into code. Identity strings live in exactly these places: `config.EnvPrefix` (`DELTA__`), `BINARY` in the Makefile (+ `cmd/deltad/` dir), `name:` in `deploy/docker-compose.yml`, and the module path (mechanical `go mod edit -module` + import rewrite). Metric names, bus subjects, and database/table names stay brand-neutral (`snapshot_*`, `bus_*`, `balances`, `tickers`).
 
 ## Tooling available to AI assistants
 

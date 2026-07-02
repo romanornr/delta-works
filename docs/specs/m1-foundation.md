@@ -1,6 +1,6 @@
 # Spec: M1 — Foundation + read-only exchange
 
-**Status:** in progress (started 2026-07-02)
+**Status:** delivered 2026-07-02, except live-key verification (running with real venue credentials and confirming balances flow into QuestDB), which needs API keys in env.
 
 ## Goal
 
