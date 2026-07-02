@@ -9,10 +9,13 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/fx"
 
 	"github.com/romanornr/delta-works/internal/adapters/gct"
+	"github.com/romanornr/delta-works/internal/adapters/postgres"
+	"github.com/romanornr/delta-works/internal/adapters/questdb"
 	"github.com/romanornr/delta-works/internal/bus"
 	"github.com/romanornr/delta-works/internal/clock"
 	"github.com/romanornr/delta-works/internal/config"
@@ -40,6 +43,11 @@ func New(configPath string, configExplicit bool) *fx.App {
 				fx.ParamTags("", "", `group:"health"`, ""),
 			),
 			newExchangeRegistry,
+			newPostgres,
+			fx.Annotate(postgres.NewCheckpointStore, fx.As(new(ports.CheckpointStore))),
+			newQuestDB,
+			fx.Annotate(postgres.NewHealth, fx.As(new(ports.HealthChecker)), fx.ResultTags(`group:"health"`)),
+			fx.Annotate(newQuestDBHealth, fx.As(new(ports.HealthChecker)), fx.ResultTags(`group:"health"`)),
 		),
 		fx.Invoke(registerBusMetrics, startTelemetryServer, logStartup),
 	)
@@ -61,6 +69,31 @@ func newExchangeRegistry(cfg config.Config, l log.Logger) (exchange.Registry, er
 			Bool("authenticated", venueCfg.APIKey != "").Msg("venue connected")
 	}
 	return exchange.NewRegistry(exchanges), nil
+}
+
+func newPostgres(lc fx.Lifecycle, cfg config.Config) (*pgxpool.Pool, error) {
+	pool, err := postgres.Connect(context.Background(), cfg.Postgres)
+	if err != nil {
+		return nil, err
+	}
+	lc.Append(fx.Hook{OnStop: func(context.Context) error {
+		pool.Close()
+		return nil
+	}})
+	return pool, nil
+}
+
+func newQuestDB(lc fx.Lifecycle, cfg config.Config) (ports.SeriesWriter, error) {
+	w, err := questdb.New(context.Background(), cfg.QuestDB)
+	if err != nil {
+		return nil, err
+	}
+	lc.Append(fx.Hook{OnStop: w.Close})
+	return w, nil
+}
+
+func newQuestDBHealth(cfg config.Config) *questdb.Health {
+	return questdb.NewHealth(cfg.QuestDB)
 }
 
 func newBus(lc fx.Lifecycle) *bus.InProc {
