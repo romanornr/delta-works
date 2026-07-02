@@ -47,8 +47,13 @@ func (c *Clock) After(d time.Duration) <-chan time.Time {
 	return w.ch
 }
 
-// NewTicker implements clock.Clock.
+// NewTicker implements clock.Clock. A non-positive interval would keep
+// Advance from ever passing the ticker's next fire time, so it panics the
+// same way time.NewTicker does.
 func (c *Clock) NewTicker(d time.Duration) clock.Ticker {
+	if d <= 0 {
+		panic("clocktest: non-positive interval for NewTicker")
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	t := &ticker{interval: d, next: c.now.Add(d), ch: make(chan time.Time, 1)}

@@ -56,6 +56,9 @@ func toGCTPairAsset(inst instrument.Instrument) (currency.Pair, asset.Item, erro
 }
 
 func toTicker(inst instrument.Instrument, p *ticker.Price) marketdata.Ticker {
+	if p == nil {
+		return marketdata.Ticker{Instrument: inst}
+	}
 	return marketdata.Ticker{
 		Instrument: inst,
 		Bid:        decimal.NewFromFloat(p.Bid),

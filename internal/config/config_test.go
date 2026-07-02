@@ -20,6 +20,10 @@ func TestLoadDefaultsFileAndEnv(t *testing.T) {
 	path := writeFile(t, `
 log:
   level: debug
+postgres:
+  dsn: "postgres://user:pass@localhost:5432/db"
+questdb:
+  conf: "http::addr=localhost:9000;"
 snapshot:
   interval: 30s
 venues:
@@ -32,6 +36,7 @@ venues:
 `)
 	t.Setenv("DELTA__LOG__FORMAT", "json")
 	t.Setenv("DELTA__VENUES__BYBIT__API_KEY", "k123")
+	t.Setenv("DELTA__VENUES__BYBIT__API_SECRET", "s456")
 
 	cfg, err := Load(path, true)
 	if err != nil {
@@ -58,6 +63,8 @@ venues:
 }
 
 func TestLoadMissingDefaultFileIsFine(t *testing.T) {
+	t.Setenv("DELTA__POSTGRES__DSN", "postgres://user:pass@localhost:5432/db")
+	t.Setenv("DELTA__QUESTDB__CONF", "http::addr=localhost:9000;")
 	cfg, err := Load(filepath.Join(t.TempDir(), "absent.yaml"), false)
 	if err != nil {
 		t.Fatalf("Load with absent default file: %v", err)
@@ -88,12 +95,22 @@ func TestValidateRejectsBadValues(t *testing.T) {
 		{"enabled venue without rate", func(c *Config) {
 			c.Venues = map[string]Venue{"x": {Enabled: true, Accounts: []string{"spot"}}}
 		}},
+		{"empty postgres dsn", func(c *Config) { c.Postgres.DSN = "" }},
+		{"empty questdb conf", func(c *Config) { c.QuestDB.Conf = "" }},
+		{"api key without secret", func(c *Config) {
+			c.Venues = map[string]Venue{"x": {
+				Enabled: true, Accounts: []string{"spot"},
+				Rate: Rate{RPS: 1, Burst: 1}, APIKey: "k",
+			}}
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := Config{
 				Log:      Log{Level: "info", Format: "console"},
 				HTTP:     HTTP{Addr: ":8080"},
+				Postgres: Postgres{DSN: "postgres://user:pass@localhost:5432/db"},
+				QuestDB:  QuestDB{Conf: "http::addr=localhost:9000;"},
 				Snapshot: Snapshot{Interval: time.Minute},
 			}
 			tt.mutate(&cfg)

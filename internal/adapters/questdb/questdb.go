@@ -104,14 +104,18 @@ type Health struct {
 // NewHealth builds the QuestDB readiness check.
 func NewHealth(cfg config.QuestDB) *Health {
 	addr := "localhost:9000"
+	scheme := "http"
 	for part := range strings.SplitSeq(cfg.Conf, ";") {
 		if v, ok := strings.CutPrefix(part, "http::addr="); ok {
 			addr = v
+		} else if v, ok := strings.CutPrefix(part, "https::addr="); ok {
+			addr = v
+			scheme = "https"
 		} else if v, ok := strings.CutPrefix(part, "addr="); ok {
 			addr = v
 		}
 	}
-	return &Health{url: "http://" + addr + "/ping"}
+	return &Health{url: scheme + "://" + addr + "/ping"}
 }
 
 // Name implements ports.HealthChecker.

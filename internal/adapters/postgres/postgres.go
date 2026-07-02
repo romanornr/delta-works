@@ -35,21 +35,21 @@ func Connect(ctx context.Context, cfg config.Postgres) (*pgxpool.Pool, error) {
 		pool.Close()
 		return nil, fmt.Errorf("postgres: ping: %w", err)
 	}
-	if err := migrate(pool); err != nil {
+	if err := migrate(ctx, pool); err != nil {
 		pool.Close()
 		return nil, err
 	}
 	return pool, nil
 }
 
-func migrate(pool *pgxpool.Pool) error {
+func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	goose.SetBaseFS(migrations)
 	if err := goose.SetDialect("postgres"); err != nil {
 		return fmt.Errorf("postgres: goose dialect: %w", err)
 	}
 	db := stdlib.OpenDBFromPool(pool)
 	defer db.Close() //nolint:errcheck // stdlib wrapper over a pool we manage
-	if err := goose.Up(db, "migrations"); err != nil {
+	if err := goose.UpContext(ctx, db, "migrations"); err != nil {
 		return fmt.Errorf("postgres: migrate: %w", err)
 	}
 	return nil

@@ -7,6 +7,7 @@ package gct
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	gctconfig "github.com/thrasher-corp/gocryptotrader/config"
@@ -81,9 +82,9 @@ func (e *Exchange) Instruments(_ context.Context, typ instrument.Type) ([]instru
 	if err != nil {
 		return nil, err
 	}
-	pairs, err := e.exch.GetAvailablePairs(item)
+	pairs, err := e.exch.GetEnabledPairs(item)
 	if err != nil {
-		return nil, fmt.Errorf("gct: available pairs %s: %w", e.id, err)
+		return nil, fmt.Errorf("gct: enabled pairs %s: %w", e.id, err)
 	}
 	return toInstruments(e.id, typ, pairs), nil
 }
@@ -96,7 +97,18 @@ func (e *Exchange) Balances(ctx context.Context, acct account.Type) ([]account.B
 	}
 	subAccounts, err := e.exch.UpdateAccountBalances(ctx, item)
 	if err != nil {
-		return nil, fmt.Errorf("gct: balances %s %s: %w", e.id, acct, err)
+		return nil, fmt.Errorf("gct: balances %s %s: %w", e.id, acct, classify(err))
 	}
 	return toBalances(subAccounts), nil
+}
+
+// classify maps GCT errors onto port sentinels so callers can distinguish
+// permanent configuration problems from transient venue failures. Venue
+// responses GCT passes through verbatim stay unclassified.
+func classify(err error) error {
+	if errors.Is(err, gctexchange.ErrCredentialsAreEmpty) ||
+		errors.Is(err, gctexchange.ErrAuthenticationSupportNotEnabled) {
+		return fmt.Errorf("%w: %w", ports.ErrAuth, err)
+	}
+	return err
 }

@@ -19,7 +19,7 @@ Everything goes through `make`:
 
 ## Architecture rules (lint-enforced where possible)
 
-- **Domain packages are pure**: `internal/domain/*` imports stdlib + shopspring/decimal only.
+- **Domain packages are pure**: `internal/domain/*` imports stdlib, sibling domain packages, and shopspring/decimal only.
 - **gocryptotrader only inside `internal/adapters/gct/`** — depguard-enforced (ADR-0003). Application code depends on `internal/ports` interfaces.
 - **Money is `shopspring/decimal`, never float64** — the sole exception is the QuestDB ILP edge (analytics, not accounting truth; ADR-0004).
 - **zerolog is imported only in `internal/log` and `cmd/`** — depguard-enforced; everything else uses the injected `log.Logger` alias.

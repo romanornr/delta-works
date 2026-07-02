@@ -1,6 +1,8 @@
 package exchange
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -51,7 +53,18 @@ func (r *registry) All() []ports.Exchange { return r.order }
 func Decorate(ex ports.Exchange, rps float64, burst int) ports.Exchange {
 	limited := WithRateLimit(ex, rate.NewLimiter(rate.Limit(rps), burst))
 	return WithBreaker(limited, gobreaker.Settings{
-		Name:    string(ex.ID()),
-		Timeout: 30 * time.Second,
+		Name:         string(ex.ID()),
+		Timeout:      30 * time.Second,
+		IsSuccessful: isBreakerSuccess,
 	})
+}
+
+// isBreakerSuccess keeps the breaker focused on venue health. Permanent
+// configuration errors and caller-side cancellation say nothing about the
+// venue, so they must not open a venue-wide circuit.
+func isBreakerSuccess(err error) bool {
+	return err == nil ||
+		errors.Is(err, ports.ErrAuth) ||
+		errors.Is(err, ports.ErrUnsupportedAccount) ||
+		errors.Is(err, context.Canceled)
 }

@@ -44,7 +44,7 @@ type Service struct {
 	metrics     *Metrics
 }
 
-// New builds the service. Metrics may not be nil.
+// New builds the service. Metrics must not be nil.
 func New(
 	registry exchange.Registry,
 	series ports.SeriesWriter,
@@ -111,13 +111,18 @@ func (s *Service) snapshot(ctx context.Context, t Target) error {
 	}
 
 	start := s.clk.Now()
-	balances, fetchErr := backoff.Retry(ctx, func() ([]account.Balance, error) {
-		bs, err := ex.Balances(ctx, t.Account)
+	// The fetch gets its own deadline so a stalled venue call cannot eat
+	// the next tick or hold up shutdown; recording and publishing below
+	// stay on the parent context.
+	fetchCtx, cancel := context.WithTimeout(ctx, s.interval/2)
+	balances, fetchErr := backoff.Retry(fetchCtx, func() ([]account.Balance, error) {
+		bs, err := ex.Balances(fetchCtx, t.Account)
 		if errors.Is(err, ports.ErrAuth) || errors.Is(err, ports.ErrUnsupportedAccount) {
 			return nil, backoff.Permanent(err)
 		}
 		return bs, err
 	}, backoff.WithMaxElapsedTime(s.interval/2))
+	cancel()
 	takenAt := s.clk.Now()
 
 	if ctx.Err() != nil {

@@ -85,6 +85,12 @@ func (c Config) Validate() error {
 	if c.Snapshot.Interval <= 0 {
 		errs = append(errs, fmt.Errorf("snapshot.interval %s: must be positive", c.Snapshot.Interval))
 	}
+	if c.Postgres.DSN == "" {
+		errs = append(errs, errors.New("postgres.dsn: must not be empty"))
+	}
+	if c.QuestDB.Conf == "" {
+		errs = append(errs, errors.New("questdb.conf: must not be empty"))
+	}
 	for name, v := range c.Venues {
 		if !v.Enabled {
 			continue
@@ -94,6 +100,9 @@ func (c Config) Validate() error {
 		}
 		if len(v.Accounts) == 0 {
 			errs = append(errs, fmt.Errorf("venues.%s.accounts: at least one account required", name))
+		}
+		if (v.APIKey == "") != (v.APISecret == "") {
+			errs = append(errs, fmt.Errorf("venues.%s: api_key and api_secret must be set together", name))
 		}
 	}
 	return errors.Join(errs...)
