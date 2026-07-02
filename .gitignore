@@ -1,0 +1,21 @@
+# binaries & build artifacts
+/bin/
+coverage.out
+coverage.html
+
+# local config & secrets (config.example.yaml is the committed template)
+/config.yaml
+/config.yml
+.env
+*.pem
+
+# local-only working areas (v3-era leftovers live in _local/v3-leftovers)
+/_local/
+/private_docs/
+
+# editors & tools
+/.idea/
+/.vscode/
+/.claude/
+/.gitnexus/
+/deltad

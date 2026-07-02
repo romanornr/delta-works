@@ -1,0 +1,68 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - copyloopvar
+    - depguard
+    - errcheck
+    - errorlint
+    - forbidigo
+    - gocritic
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - noctx
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+  settings:
+    depguard:
+      rules:
+        gct-quarantine:
+          list-mode: lax
+          files:
+            - "!**/internal/adapters/gct/**"
+          deny:
+            - pkg: github.com/thrasher-corp/gocryptotrader
+              desc: gocryptotrader may only be imported inside internal/adapters/gct (ADR-0003)
+        zerolog-construction:
+          list-mode: lax
+          files:
+            - "!**/internal/log/**"
+            - "!**/cmd/**"
+          deny:
+            - pkg: github.com/rs/zerolog
+              desc: import internal/log (which aliases zerolog) instead of zerolog directly
+    forbidigo:
+      forbid:
+        - pattern: ^fmt\.Print.*$
+          msg: use the injected logger, not fmt.Print*
+    revive:
+      rules:
+        - name: exported
+        - name: context-as-argument
+        - name: error-return
+        - name: error-strings
+        - name: early-return
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - unparam
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/romanornr/delta-works
