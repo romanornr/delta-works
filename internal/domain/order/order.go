@@ -1,0 +1,91 @@
+// Package order holds the minimal order model. M1 compiles these types to
+// lock the trading seam (ports.OrderPlacer); the full state machine,
+// validation against instrument.Rules, and persistence arrive in M2.
+package order
+
+import (
+	"time"
+
+	"github.com/shopspring/decimal"
+
+	"github.com/romanornr/delta-works/internal/domain/instrument"
+)
+
+// ClientOrderID is OUR identifier, generated before submission. It is the
+// idempotency key across placement retries and stream deduplication.
+type ClientOrderID string
+
+// Side of an order.
+type Side string
+
+// Order sides.
+const (
+	Buy  Side = "buy"
+	Sell Side = "sell"
+)
+
+// Type of an order.
+type Type string
+
+// Order types. Algo types (iceberg, pegged, ...) are compositions in the
+// execution layer, not venue order types.
+const (
+	Limit  Type = "limit"
+	Market Type = "market"
+)
+
+// Status of an order at a venue.
+type Status string
+
+// Order statuses (the M2 state machine constrains transitions).
+const (
+	StatusPending         Status = "pending"
+	StatusOpen            Status = "open"
+	StatusPartiallyFilled Status = "partially_filled"
+	StatusFilled          Status = "filled"
+	StatusCanceled        Status = "canceled"
+	StatusRejected        Status = "rejected"
+	StatusExpired         Status = "expired"
+)
+
+// Request is an order to submit.
+type Request struct {
+	ClientOrderID ClientOrderID
+	Instrument    instrument.Instrument
+	Side          Side
+	Type          Type
+	Price         decimal.Decimal // zero for market orders
+	Qty           decimal.Decimal
+}
+
+// Ref identifies an order at a venue.
+type Ref struct {
+	Instrument    instrument.Instrument
+	ClientOrderID ClientOrderID
+	VenueOrderID  string
+}
+
+// Ack is the venue's acceptance of a Request.
+type Ack struct {
+	Ref        Ref
+	AcceptedAt time.Time
+}
+
+// Snapshot is a venue's current view of an order.
+type Snapshot struct {
+	Ref       Ref
+	Status    Status
+	Price     decimal.Decimal
+	Qty       decimal.Decimal
+	FilledQty decimal.Decimal
+	UpdatedAt time.Time
+}
+
+// Event is a change to an order reported by a venue stream.
+type Event struct {
+	Ref       Ref
+	Status    Status
+	FilledQty decimal.Decimal
+	FillPrice decimal.Decimal
+	At        time.Time
+}

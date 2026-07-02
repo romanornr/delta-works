@@ -12,9 +12,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/fx"
 
+	"github.com/romanornr/delta-works/internal/adapters/gct"
 	"github.com/romanornr/delta-works/internal/bus"
 	"github.com/romanornr/delta-works/internal/clock"
 	"github.com/romanornr/delta-works/internal/config"
+	"github.com/romanornr/delta-works/internal/exchange"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
 	"github.com/romanornr/delta-works/internal/telemetry"
@@ -37,9 +39,28 @@ func New(configPath string, configExplicit bool) *fx.App {
 				},
 				fx.ParamTags("", "", `group:"health"`, ""),
 			),
+			newExchangeRegistry,
 		),
 		fx.Invoke(registerBusMetrics, startTelemetryServer, logStartup),
 	)
+}
+
+// newExchangeRegistry connects every enabled venue through the GCT adapter
+// and wraps it in the standard resilience stack (rate limit + breaker).
+func newExchangeRegistry(cfg config.Config, l log.Logger) (exchange.Registry, error) {
+	logger := log.Component(l, "exchange")
+	var exchanges []ports.Exchange
+	for _, name := range cfg.EnabledVenues() {
+		venueCfg := cfg.Venues[name]
+		ex, err := gct.New(context.Background(), name, venueCfg)
+		if err != nil {
+			return nil, err
+		}
+		exchanges = append(exchanges, exchange.Decorate(ex, venueCfg.Rate.RPS, venueCfg.Rate.Burst))
+		logger.Info().Str("venue", name).Strs("accounts", venueCfg.Accounts).
+			Bool("authenticated", venueCfg.APIKey != "").Msg("venue connected")
+	}
+	return exchange.NewRegistry(exchanges), nil
 }
 
 func newBus(lc fx.Lifecycle) *bus.InProc {
