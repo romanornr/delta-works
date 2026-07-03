@@ -1,6 +1,7 @@
 // Package config loads and validates the application configuration from a
 // YAML file merged with DELTA__-prefixed environment variables (env wins).
-// Secrets such as venue API keys are env-only by convention.
+// Secrets such as venue API keys never go in the config file: they are
+// referenced by path (api_key_file) or injected via environment.
 package config
 
 import (
@@ -50,13 +51,17 @@ type Snapshot struct {
 	Interval time.Duration `koanf:"interval"`
 }
 
-// Venue configures one exchange connection.
+// Venue configures one exchange connection. Each credential is either a
+// direct value or a path to a secret file, not both. Files carry multiline
+// secrets such as PEM keys (ADR-0006).
 type Venue struct {
-	Enabled   bool     `koanf:"enabled"`
-	Accounts  []string `koanf:"accounts"`
-	Rate      Rate     `koanf:"rate"`
-	APIKey    string   `koanf:"api_key"`
-	APISecret string   `koanf:"api_secret"`
+	Enabled       bool     `koanf:"enabled"`
+	Accounts      []string `koanf:"accounts"`
+	Rate          Rate     `koanf:"rate"`
+	APIKey        string   `koanf:"api_key"`
+	APISecret     string   `koanf:"api_secret"`
+	APIKeyFile    string   `koanf:"api_key_file"`
+	APISecretFile string   `koanf:"api_secret_file"`
 }
 
 // Rate configures the client-side rate limiter for a venue.

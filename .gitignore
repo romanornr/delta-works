@@ -6,6 +6,7 @@ coverage.html
 # local config & secrets (config.example.yaml is the committed template)
 /config.yaml
 /config.yml
+/secrets/
 .env
 *.pem
 

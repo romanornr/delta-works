@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/knadh/koanf/parsers/yaml"
@@ -66,8 +68,56 @@ func Load(path string, explicit bool) (Config, error) {
 	if err := k.Unmarshal("", &cfg); err != nil {
 		return Config{}, fmt.Errorf("unmarshal config: %w", err)
 	}
+	if err := resolveSecretFiles(cfg.Venues); err != nil {
+		return Config{}, err
+	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, fmt.Errorf("invalid config: %w", err)
 	}
 	return cfg, nil
+}
+
+// resolveSecretFiles reads secret files into APIKey and APISecret so the
+// rest of the application only sees resolved values. Disabled venues are
+// skipped: their secret files may not exist.
+func resolveSecretFiles(venues map[string]Venue) error {
+	for name, v := range venues {
+		if !v.Enabled {
+			continue
+		}
+		var err error
+		if v.APIKey, err = resolveSecret(v.APIKey, v.APIKeyFile); err != nil {
+			return fmt.Errorf("venues.%s.api_key: %w", name, err)
+		}
+		if v.APISecret, err = resolveSecret(v.APISecret, v.APISecretFile); err != nil {
+			return fmt.Errorf("venues.%s.api_secret: %w", name, err)
+		}
+		venues[name] = v
+	}
+	return nil
+}
+
+func resolveSecret(value, path string) (string, error) {
+	if path == "" {
+		return value, nil
+	}
+	if value != "" {
+		return "", errors.New("set either the value or the file, not both")
+	}
+	if home, ok := strings.CutPrefix(path, "~/"); ok {
+		dir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve ~: %w", err)
+		}
+		path = filepath.Join(dir, home)
+	}
+	b, err := os.ReadFile(path) //nolint:gosec // the operator chooses the secret file path
+	if err != nil {
+		return "", fmt.Errorf("read secret file: %w", err)
+	}
+	secret := strings.TrimSpace(string(b))
+	if secret == "" {
+		return "", fmt.Errorf("secret file %s is empty", path)
+	}
+	return secret, nil
 }

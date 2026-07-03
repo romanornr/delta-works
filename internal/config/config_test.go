@@ -67,6 +67,76 @@ venues:
 	}
 }
 
+func TestLoadSecretFiles(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "key")
+	secretPath := filepath.Join(dir, "secret")
+	if err := os.WriteFile(keyPath, []byte("k123\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pem := "-----BEGIN EC PRIVATE KEY-----\nabc\ndef\n-----END EC PRIVATE KEY-----"
+	if err := os.WriteFile(secretPath, []byte(pem+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	path := writeFile(t, `
+postgres:
+  dsn: "postgres://user:pass@localhost:5432/db"
+questdb:
+  conf: "http::addr=localhost:9000;"
+venues:
+  bybit:
+    enabled: true
+    accounts: [spot]
+    rate: {rps: 5, burst: 10}
+    api_key_file: "`+keyPath+`"
+    api_secret_file: "`+secretPath+`"
+`)
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := cfg.Venues["bybit"].APIKey; got != "k123" {
+		t.Errorf("api key from file: got %q", got)
+	}
+	if got := cfg.Venues["bybit"].APISecret; got != pem {
+		t.Errorf("multiline secret from file: got %q", got)
+	}
+}
+
+func TestLoadSecretFileErrors(t *testing.T) {
+	tests := []struct {
+		name  string
+		venue string
+	}{
+		{"value and file conflict", `
+    api_key: direct
+    api_key_file: /dev/null
+    api_secret: s`},
+		{"missing file", `
+    api_key_file: /nonexistent/key
+    api_secret: s`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := writeFile(t, `
+postgres:
+  dsn: "postgres://user:pass@localhost:5432/db"
+questdb:
+  conf: "http::addr=localhost:9000;"
+venues:
+  bybit:
+    enabled: true
+    accounts: [spot]
+    rate: {rps: 5, burst: 10}`+tt.venue+`
+`)
+			if _, err := Load(path, true); err == nil {
+				t.Error("expected error, got nil")
+			}
+		})
+	}
+}
+
 func TestLoadMissingDefaultFileIsFine(t *testing.T) {
 	t.Setenv("DELTA__POSTGRES__DSN", "postgres://user:pass@localhost:5432/db")
 	t.Setenv("DELTA__QUESTDB__CONF", "http::addr=localhost:9000;")
