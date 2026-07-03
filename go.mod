@@ -205,3 +205,5 @@ tool (
 	github.com/sqlc-dev/sqlc/cmd/sqlc
 	golang.org/x/vuln/cmd/govulncheck
 )
+
+replace github.com/thrasher-corp/gocryptotrader => github.com/romanornr/gocryptotrader v0.0.0-20260703010946-de311b2640a4

@@ -433,6 +433,8 @@ github.com/rogpeppe/fastuuid v0.0.0-20150106093220-6724a57986af/go.mod h1:XWv6So
 github.com/rogpeppe/fastuuid v1.2.0/go.mod h1:jVj6XXZzXRy/MSR5jhDC/2q6DgLz+nrA6LYCDYWNEvQ=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
 github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7so1lCWt35ZSgc=
+github.com/romanornr/gocryptotrader v0.0.0-20260703010946-de311b2640a4 h1:OMPR0WSnFe2v3FQdqq3qIVKI0DJZkpgCS4mGeiY6YbQ=
+github.com/romanornr/gocryptotrader v0.0.0-20260703010946-de311b2640a4/go.mod h1:f1GxO3+NrelKRM5rukqUmhLtaClJgCEBMGa8VU0shF0=
 github.com/rs/zerolog v1.35.1 h1:m7xQeoiLIiV0BCEY4Hs+j2NG4Gp2o2KPKmhnnLiazKI=
 github.com/rs/zerolog v1.35.1/go.mod h1:EjML9kdfa/RMA7h/6z6pYmq1ykOuA8/mjWaEvGI+jcw=
 github.com/russross/blackfriday v1.5.2/go.mod h1:JO/DiYxRf+HjHt06OyowR9PTA263kcR/rfWxYHBV53g=
@@ -511,8 +513,6 @@ github.com/tetratelabs/wazero v1.11.0 h1:+gKemEuKCTevU4d7ZTzlsvgd1uaToIDtlQlmNbw
 github.com/tetratelabs/wazero v1.11.0/go.mod h1:eV28rsN8Q+xwjogd7f4/Pp4xFxO7uOGbLcD/LzB1wiU=
 github.com/thrasher-corp/gct-ta v0.0.0-20200623072738-f2b55b7f9f41 h1:oFqn2u2F6cnHskAlQ3j702hBbEfn+5bbIl90pQz9IPo=
 github.com/thrasher-corp/gct-ta v0.0.0-20200623072738-f2b55b7f9f41/go.mod h1:z51vdK6i7okTmwu9tPh9+W8nqPWv80B/nMZUCX17fwY=
-github.com/thrasher-corp/gocryptotrader v0.0.0-20260629055434-e8373c7acbd2 h1:LhtoP9ErYEn41l074jr/vSp7JBorwHbtKTn67cmS470=
-github.com/thrasher-corp/gocryptotrader v0.0.0-20260629055434-e8373c7acbd2/go.mod h1:f1GxO3+NrelKRM5rukqUmhLtaClJgCEBMGa8VU0shF0=
 github.com/thrasher-corp/goose v2.7.0-rc4.0.20191002032028-0f2c2a27abdb+incompatible h1:SPqQlzFu3g4P9wK2iwJaWVLJWcQ5rYc43rvXBJ8RSCY=
 github.com/thrasher-corp/goose v2.7.0-rc4.0.20191002032028-0f2c2a27abdb+incompatible/go.mod h1:2Bb/y0SpnUWOlPU5kDz+ctvb3w/mzuAVqxy7JPfBzgw=
 github.com/thrasher-corp/sqlboiler v1.0.1-0.20191001234224-71e17f37a85e h1:4kYBo2YhqqFY7aZPPEhrtPTMoAq4iCsoDITd3jseRbY=
