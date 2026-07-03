@@ -206,4 +206,4 @@ tool (
 	golang.org/x/vuln/cmd/govulncheck
 )
 
-replace github.com/thrasher-corp/gocryptotrader => github.com/romanornr/gocryptotrader v0.0.0-20260703011702-ba73c6d71af3
+replace github.com/thrasher-corp/gocryptotrader => github.com/romanornr/gocryptotrader v0.0.0-20260703013034-c34d81df0839

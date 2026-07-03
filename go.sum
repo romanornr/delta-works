@@ -433,8 +433,8 @@ github.com/rogpeppe/fastuuid v0.0.0-20150106093220-6724a57986af/go.mod h1:XWv6So
 github.com/rogpeppe/fastuuid v1.2.0/go.mod h1:jVj6XXZzXRy/MSR5jhDC/2q6DgLz+nrA6LYCDYWNEvQ=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
 github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7so1lCWt35ZSgc=
-github.com/romanornr/gocryptotrader v0.0.0-20260703011702-ba73c6d71af3 h1:uhU9rss4H03mcq4inocXu7SNogTZKm85FNpmCfGGOiY=
-github.com/romanornr/gocryptotrader v0.0.0-20260703011702-ba73c6d71af3/go.mod h1:f1GxO3+NrelKRM5rukqUmhLtaClJgCEBMGa8VU0shF0=
+github.com/romanornr/gocryptotrader v0.0.0-20260703013034-c34d81df0839 h1:81m7jjcmkBs4oxlzk2QzE7om048bu29X9c4C+pVtQV0=
+github.com/romanornr/gocryptotrader v0.0.0-20260703013034-c34d81df0839/go.mod h1:f1GxO3+NrelKRM5rukqUmhLtaClJgCEBMGa8VU0shF0=
 github.com/rs/zerolog v1.35.1 h1:m7xQeoiLIiV0BCEY4Hs+j2NG4Gp2o2KPKmhnnLiazKI=
 github.com/rs/zerolog v1.35.1/go.mod h1:EjML9kdfa/RMA7h/6z6pYmq1ykOuA8/mjWaEvGI+jcw=
 github.com/russross/blackfriday v1.5.2/go.mod h1:JO/DiYxRf+HjHt06OyowR9PTA263kcR/rfWxYHBV53g=
