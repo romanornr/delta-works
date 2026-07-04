@@ -10,16 +10,21 @@ import (
 
 	"github.com/romanornr/delta-works/internal/api"
 	"github.com/romanornr/delta-works/internal/api/gen/control/v1/controlv1connect"
+	"github.com/romanornr/delta-works/internal/config"
 )
 
-const usage = `usage: deltactl [-addr address] <command>
+// addrEnv derives from config.EnvPrefix so a project rename touches one
+// constant (AGENTS.md).
+var addrEnv = config.EnvPrefix + "API__ADDR"
+
+var usage = `usage: deltactl [-addr address] <command>
 
 commands:
   snapshot <venue> <account>   print the last snapshot checkpoint
   events [-prefix p]           stream bus events as JSON lines
   watch                        live balances view (q to quit)
 
-The address comes from -addr or DELTA__API__ADDR, in the same forms the
+The address comes from -addr or ` + addrEnv + `, in the same forms the
 daemon accepts: unix:///path/to.sock or host:port.
 `
 
@@ -38,7 +43,7 @@ func main() {
 func run(args []string) error {
 	flags := flag.NewFlagSet("deltactl", flag.ExitOnError)
 	flags.Usage = func() { fmt.Fprint(os.Stderr, usage) }
-	addr := flags.String("addr", os.Getenv("DELTA__API__ADDR"), "control-plane address")
+	addr := flags.String("addr", os.Getenv(addrEnv), "control-plane address")
 	_ = flags.Parse(args)
 
 	if flags.NArg() == 0 {
@@ -46,7 +51,7 @@ func run(args []string) error {
 		return fmt.Errorf("missing command")
 	}
 	if *addr == "" {
-		return fmt.Errorf("no address: pass -addr or set DELTA__API__ADDR")
+		return fmt.Errorf("no address: pass -addr or set %s", addrEnv)
 	}
 
 	httpClient, baseURL := api.NewHTTPClient(*addr)

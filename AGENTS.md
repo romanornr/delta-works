@@ -8,7 +8,8 @@ Everything goes through `make`:
 
 | Target | Purpose |
 |---|---|
-| `make build` / `make run` | build/run `bin/deltad` |
+| `make build` / `make run` | build/run `bin/deltad` against native Postgres/QuestDB (5432/9000) |
+| `make run-docker` | same daemon against the compose stack's mapped ports (5433/9010) |
 | `make fmt` / `make lint` | gofumpt+goimports via golangci-lint v2 / full lint |
 | `make test` / `make test-race` | unit tests (always `-shuffle=on`) |
 | `make test-integration` | testcontainers tests (`-tags integration`, needs Docker) |
@@ -30,7 +31,7 @@ Everything goes through `make`:
 - **Diffs trend net-negative**: prefer unifying or removing code over adding it; extract a shared helper at the second occurrence, not the third. Ceilings are lint-enforced (dupl, funlen, gocognit, nestif). Before committing a batch of fixes, do a simplification pass over the touched files.
 - Significant design choices get an ADR in `docs/adr/` in the same change.
 - **Comments**: only where the code cannot say it itself, written in plain sentences an outside developer will still understand in five years. No em-dashes, no filler ("simply", "note that", "deliberately"), no narration of what the next line does.
-- **The project may be renamed** — never scatter the brand into code. Identity strings live in exactly these places: `config.EnvPrefix` (`DELTA__`), `BINARY`/`CTL` in the Makefile (+ `cmd/deltad/`, `cmd/deltactl/` dirs), `name:` in `deploy/docker-compose.yml`, and the module path (mechanical `go mod edit -module` + import rewrite). Metric names, bus subjects, and database/table names stay brand-neutral (`snapshot_*`, `bus_*`, `balances`, `tickers`).
+- **The project may be renamed** — never scatter the brand into code. Identity strings live in exactly these places: `config.EnvPrefix` (`DELTA__`), `BINARY`/`CTL`/`ENV` in the Makefile (+ `cmd/deltad/`, `cmd/deltactl/` dirs), `name:` in `deploy/docker-compose.yml`, and the module path (mechanical `go mod edit -module` + import rewrite). Metric names, bus subjects, and database/table names stay brand-neutral (`snapshot_*`, `bus_*`, `balances`, `tickers`).
 
 ## Tooling available to AI assistants
 

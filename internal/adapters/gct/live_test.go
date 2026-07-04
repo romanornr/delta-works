@@ -17,8 +17,8 @@ import (
 //	DELTA__VENUES__BYBIT__API_KEY=... DELTA__VENUES__BYBIT__API_SECRET=... \
 //	go test -tags live -run TestLiveBalances -v ./internal/adapters/gct
 func TestLiveBalances(t *testing.T) {
-	key := os.Getenv("DELTA__VENUES__BYBIT__API_KEY")
-	secret := os.Getenv("DELTA__VENUES__BYBIT__API_SECRET")
+	key := os.Getenv(config.EnvPrefix + "VENUES__BYBIT__API_KEY")
+	secret := os.Getenv(config.EnvPrefix + "VENUES__BYBIT__API_SECRET")
 	if key == "" || secret == "" {
 		t.Skip("venue credentials not set")
 	}
