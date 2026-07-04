@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package control.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// EventService streams the daemon's event bus to clients.
+service EventService {
+  // StreamEvents delivers bus events whose subject starts with the given
+  // prefix; an empty prefix subscribes to everything. Delivery is
+  // at-most-once, matching the bus contract: a slow client drops events
+  // rather than stalling the daemon.
+  rpc StreamEvents(StreamEventsRequest) returns (stream StreamEventsResponse) {}
+}
+
+message StreamEventsRequest {
+  string subject_prefix = 1;
+}
+
+message StreamEventsResponse {
+  Event event = 1;
+}
+
+// Event is the bus envelope. New payload types are added as oneof arms;
+// existing arms are never renumbered.
+message Event {
+  string subject = 1;
+  google.protobuf.Timestamp at = 2;
+  oneof payload {
+    AccountSnapshot snapshot_taken = 10;
+  }
+}
+
+// AccountSnapshot is a point-in-time view of one account's balances.
+message AccountSnapshot {
+  string venue = 1;
+  string account = 2;
+  google.protobuf.Timestamp taken_at = 3;
+  repeated Balance balances = 4;
+}
+
+// Balance carries decimal amounts as strings: money never travels as a
+// float (ADR-0004).
+message Balance {
+  string currency = 1;
+  string total = 2;
+  string free = 3;
+  string locked = 4;
+}

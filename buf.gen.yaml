@@ -1,0 +1,17 @@
+version: v2
+clean: true
+managed:
+  enabled: true
+  disable:
+    - file_option: go_package
+      module: buf.build/bufbuild/protovalidate
+  override:
+    - file_option: go_package_prefix
+      value: github.com/romanornr/delta-works/internal/api/gen
+plugins:
+  - local: [go, tool, protoc-gen-go]
+    out: internal/api/gen
+    opt: paths=source_relative
+  - local: [go, tool, protoc-gen-connect-go]
+    out: internal/api/gen
+    opt: paths=source_relative

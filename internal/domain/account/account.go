@@ -21,6 +21,15 @@ const (
 	TypeMargin  Type = "margin"
 )
 
+// Valid reports whether t is a known classification.
+func (t Type) Valid() bool {
+	switch t {
+	case TypeSpot, TypeFunding, TypeUnified, TypeMargin:
+		return true
+	}
+	return false
+}
+
 // Ref identifies one account at one venue.
 type Ref struct {
 	Venue instrument.VenueID

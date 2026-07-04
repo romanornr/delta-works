@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+// Package control.v1 is the wire contract of the daemon's control plane.
+// The package name is brand-neutral on purpose: renaming the project must
+// never break wire compatibility (ADR-0007).
+package control.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// SnapshotService exposes the durable snapshot checkpoints kept in Postgres.
+service SnapshotService {
+  // GetLastSnapshot returns the most recent snapshot checkpoint for one
+  // account, or NOT_FOUND when no snapshot has been taken yet.
+  rpc GetLastSnapshot(GetLastSnapshotRequest) returns (GetLastSnapshotResponse) {}
+}
+
+message GetLastSnapshotRequest {
+  string venue = 1 [(buf.validate.field).string.min_len = 1];
+  string account = 2 [(buf.validate.field).string.min_len = 1];
+}
+
+message GetLastSnapshotResponse {
+  SnapshotCheckpoint checkpoint = 1;
+}
+
+// SnapshotCheckpoint mirrors the Postgres record proving a balance snapshot
+// reached the time-series store.
+message SnapshotCheckpoint {
+  string id = 1;
+  string venue = 2;
+  string account = 3;
+  google.protobuf.Timestamp taken_at = 4;
+  int32 balance_count = 5;
+  CheckpointStatus status = 6;
+  string error = 7;
+}
+
+// CheckpointStatus classifies a snapshot attempt.
+enum CheckpointStatus {
+  CHECKPOINT_STATUS_UNSPECIFIED = 0;
+  CHECKPOINT_STATUS_OK = 1;
+  CHECKPOINT_STATUS_FAILED = 2;
+}

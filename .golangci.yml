@@ -6,14 +6,18 @@ linters:
     - bodyclose
     - copyloopvar
     - depguard
+    - dupl
     - errcheck
     - errorlint
     - forbidigo
+    - funlen
+    - gocognit
     - gocritic
     - gosec
     - govet
     - ineffassign
     - misspell
+    - nestif
     - noctx
     - revive
     - rowserrcheck
@@ -40,6 +44,15 @@ linters:
           deny:
             - pkg: github.com/rs/zerolog
               desc: import internal/log (which aliases zerolog) instead of zerolog directly
+    dupl:
+      threshold: 120
+    funlen:
+      lines: 80
+      statements: 50
+    gocognit:
+      min-complexity: 20
+    nestif:
+      min-complexity: 5
     forbidigo:
       forbid:
         - pattern: ^fmt\.Print.*$
@@ -55,6 +68,9 @@ linters:
     rules:
       - path: _test\.go
         linters:
+          - dupl
+          - funlen
+          - gocognit
           - gosec
           - unparam
 

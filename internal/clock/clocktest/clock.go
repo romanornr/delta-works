@@ -69,31 +69,43 @@ func (c *Clock) Advance(d time.Duration) {
 	defer c.mu.Unlock()
 	target := c.now.Add(d)
 	for {
-		// Step to the earliest pending ticker fire, or the target.
-		step := target
-		for _, t := range c.tickers {
-			if !t.stopped && t.next.Before(step) {
-				step = t.next
-			}
-		}
-		c.now = step
-		for _, w := range c.waiters {
-			if !w.at.After(c.now) && w.ch != nil {
-				w.ch <- c.now
-				w.ch = nil
-			}
-		}
-		for _, t := range c.tickers {
-			for !t.stopped && !t.next.After(c.now) {
-				select {
-				case t.ch <- t.next:
-				default:
-				}
-				t.next = t.next.Add(t.interval)
-			}
-		}
+		c.now = c.nextStep(target)
+		c.fireWaiters()
+		c.fireTickers()
 		if c.now.Equal(target) {
 			return
+		}
+	}
+}
+
+// nextStep returns the earliest pending ticker fire, or the target.
+func (c *Clock) nextStep(target time.Time) time.Time {
+	step := target
+	for _, t := range c.tickers {
+		if !t.stopped && t.next.Before(step) {
+			step = t.next
+		}
+	}
+	return step
+}
+
+func (c *Clock) fireWaiters() {
+	for _, w := range c.waiters {
+		if !w.at.After(c.now) && w.ch != nil {
+			w.ch <- c.now
+			w.ch = nil
+		}
+	}
+}
+
+func (c *Clock) fireTickers() {
+	for _, t := range c.tickers {
+		for !t.stopped && !t.next.After(c.now) {
+			select {
+			case t.ch <- t.next:
+			default:
+			}
+			t.next = t.next.Add(t.interval)
 		}
 	}
 }

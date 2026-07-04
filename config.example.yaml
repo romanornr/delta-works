@@ -13,6 +13,12 @@ log:
 http:
   addr: ":8080" # /metrics /healthz /readyz
 
+# Control-plane RPC server (ConnectRPC). Omit addr to disable.
+# A unix:// socket is restricted to the owning user; use host:port only
+# on trusted networks (no auth yet).
+# api:
+#   addr: "unix:///tmp/control.sock" # or "127.0.0.1:8081"
+
 postgres:
   dsn: "postgres://delta:delta@localhost:5433/delta?sslmode=disable"
 
