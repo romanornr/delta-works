@@ -17,6 +17,7 @@ import (
 	"github.com/romanornr/delta-works/internal/adapters/gct"
 	"github.com/romanornr/delta-works/internal/adapters/postgres"
 	"github.com/romanornr/delta-works/internal/adapters/questdb"
+	"github.com/romanornr/delta-works/internal/api"
 	"github.com/romanornr/delta-works/internal/bus"
 	"github.com/romanornr/delta-works/internal/clock"
 	"github.com/romanornr/delta-works/internal/config"
@@ -60,8 +61,10 @@ func New(configPath string, configExplicit bool) *fx.App {
 			fx.Annotate(newQuestDBHealth, fx.As(new(ports.HealthChecker)), fx.ResultTags(`group:"health"`)),
 			snapshot.NewMetrics,
 			newSnapshotService,
+			api.NewSnapshotServer,
+			api.NewEventServer,
 		),
-		fx.Invoke(registerBusMetrics, startTelemetryServer, startSnapshotService, logStartup),
+		fx.Invoke(registerBusMetrics, startTelemetryServer, startAPIServer, startSnapshotService, logStartup),
 	)
 }
 
@@ -184,27 +187,52 @@ func registerBusMetrics(b *bus.InProc, reg *prometheus.Registry) error {
 	}, func() float64 { return float64(b.Dropped()) }))
 }
 
-func startTelemetryServer(lc fx.Lifecycle, srv *http.Server, l log.Logger, shutdowner fx.Shutdowner) {
-	logger := log.Component(l, "telemetry")
+// serveHTTP runs an HTTP server under the fx lifecycle: serve in the
+// background, exit the process on serve failure so the supervisor restarts
+// it, shut down gracefully on stop.
+func serveHTTP(lc fx.Lifecycle, name string, srv *http.Server,
+	listen func(context.Context) (net.Listener, error), l log.Logger, shutdowner fx.Shutdowner,
+) {
+	logger := log.Component(l, name)
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			ln, err := new(net.ListenConfig).Listen(ctx, "tcp", srv.Addr)
+			ln, err := listen(ctx)
 			if err != nil {
 				return err
 			}
 			go func() {
 				if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-					logger.Error().Err(err).Msg("telemetry server failed")
+					logger.Error().Err(err).Msg("server failed")
 					_ = shutdowner.Shutdown(fx.ExitCode(1))
 				}
 			}()
-			logger.Info().Str("addr", srv.Addr).Msg("telemetry server listening")
+			logger.Info().Str("addr", ln.Addr().String()).Msg("listening")
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
 			return srv.Shutdown(ctx)
 		},
 	})
+}
+
+func startTelemetryServer(lc fx.Lifecycle, srv *http.Server, l log.Logger, shutdowner fx.Shutdowner) {
+	serveHTTP(lc, "telemetry", srv, func(ctx context.Context) (net.Listener, error) {
+		return new(net.ListenConfig).Listen(ctx, "tcp", srv.Addr)
+	}, l, shutdowner)
+}
+
+// startAPIServer serves the control plane (ADR-0007) when api.addr is
+// configured. The server is built here rather than provided because fx
+// already carries the telemetry *http.Server.
+func startAPIServer(lc fx.Lifecycle, cfg config.Config, snapshots *api.SnapshotServer,
+	events *api.EventServer, l log.Logger, shutdowner fx.Shutdowner,
+) {
+	if cfg.API.Addr == "" {
+		return
+	}
+	serveHTTP(lc, "api", api.NewServer(snapshots, events), func(ctx context.Context) (net.Listener, error) {
+		return api.Listen(ctx, cfg.API.Addr)
+	}, l, shutdowner)
 }
 
 func logStartup(cfg config.Config, l log.Logger) {

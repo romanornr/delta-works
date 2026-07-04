@@ -12,10 +12,11 @@ Everything goes through `make`:
 | `make fmt` / `make lint` | gofumpt+goimports via golangci-lint v2 / full lint |
 | `make test` / `make test-race` | unit tests (always `-shuffle=on`) |
 | `make test-integration` | testcontainers tests (`-tags integration`, needs Docker) |
-| `make generate` | sqlc codegen |
+| `make generate` | sqlc + buf codegen |
+| `make proto-lint` | buf lint + breaking-change check against main |
 | `make migrate-up/-down/-status` | goose against `$DELTA__POSTGRES__DSN` |
 | `make compose-up` | Postgres + QuestDB (`--profile observability` adds Prometheus/Grafana) |
-| `make ci` | the full local gate: fmt-check, lint, vuln, test-race, tidy-check |
+| `make ci` | the full local gate: fmt-check, lint, proto-lint, vuln, test-race, tidy-check |
 
 ## Architecture rules (lint-enforced where possible)
 
@@ -25,6 +26,8 @@ Everything goes through `make`:
 - **zerolog is imported only in `internal/log` and `cmd/`** — depguard-enforced; everything else uses the injected `log.Logger` alias.
 - `context.Context` is the first parameter of anything that blocks.
 - Table-driven tests; integration tests behind `//go:build integration`; live-venue tests behind `//go:build live` (manual only, never CI).
+- **The control plane is the only client surface** (ADR-0007): CLI/TUI/web all speak the ConnectRPC API defined in `proto/`; generated code in `internal/api/gen/` is never hand-edited. The wire package `control.v1` stays brand-neutral.
+- **Diffs trend net-negative**: prefer unifying or removing code over adding it; extract a shared helper at the second occurrence, not the third. Ceilings are lint-enforced (dupl, funlen, gocognit, nestif). Before committing a batch of fixes, do a simplification pass over the touched files.
 - Significant design choices get an ADR in `docs/adr/` in the same change.
 - **Comments**: only where the code cannot say it itself, written in plain sentences an outside developer will still understand in five years. No em-dashes, no filler ("simply", "note that", "deliberately"), no narration of what the next line does.
 - **The project may be renamed** — never scatter the brand into code. Identity strings live in exactly these places: `config.EnvPrefix` (`DELTA__`), `BINARY` in the Makefile (+ `cmd/deltad/` dir), `name:` in `deploy/docker-compose.yml`, and the module path (mechanical `go mod edit -module` + import rewrite). Metric names, bus subjects, and database/table names stay brand-neutral (`snapshot_*`, `bus_*`, `balances`, `tickers`).

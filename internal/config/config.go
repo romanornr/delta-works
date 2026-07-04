@@ -18,6 +18,7 @@ const EnvPrefix = "DELTA__"
 type Config struct {
 	Log      Log              `koanf:"log"`
 	HTTP     HTTP             `koanf:"http"`
+	API      API              `koanf:"api"`
 	Postgres Postgres         `koanf:"postgres"`
 	QuestDB  QuestDB          `koanf:"questdb"`
 	Snapshot Snapshot         `koanf:"snapshot"`
@@ -32,6 +33,13 @@ type Log struct {
 
 // HTTP configures the telemetry HTTP server (/metrics, /healthz, /readyz).
 type HTTP struct {
+	Addr string `koanf:"addr"`
+}
+
+// API configures the control-plane RPC server (ADR-0007). An empty Addr
+// disables it. "unix:///path/to.sock" listens on a Unix socket with 0600
+// permissions; anything else is a TCP host:port.
+type API struct {
 	Addr string `koanf:"addr"`
 }
 
