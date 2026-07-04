@@ -8,8 +8,14 @@ Multi-exchange crypto trading platform in Go. Currently: portfolio snapshot daem
 cp config.example.yaml config.yaml           # adjust; API keys go in env, not the file
 export DELTA__VENUES__BYBIT__API_KEY=...     # secrets are env-only
 export DELTA__VENUES__BYBIT__API_SECRET=...
-make compose-up                              # Postgres :5433, QuestDB :9010/:8813
-make run                                     # daemon; metrics/health on :8080
+
+# native Postgres (5432) + QuestDB (9000), matching config.example.yaml:
+make migrate-up && make run                  # daemon; metrics/health on :8080
+
+# or the docker stack on offset ports (5433/9010):
+make compose-up
+DELTA__POSTGRES__DSN='postgres://trading:trading@localhost:5433/trading?sslmode=disable' make migrate-up
+make run-docker
 ```
 
 - QuestDB console: http://localhost:9010 · Grafana (optional): `docker compose -f deploy/docker-compose.yml --profile observability up -d` → http://localhost:3002

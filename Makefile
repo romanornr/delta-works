@@ -1,9 +1,11 @@
 GO      ?= go
+# Identity strings live here and in config.EnvPrefix (AGENTS.md).
 BINARY  := bin/deltad
 CTL     := bin/deltactl
+ENV     := DELTA__
 COMPOSE := docker compose -f deploy/docker-compose.yml
 
-.PHONY: all build run fmt fmt-check lint proto-lint test test-race test-integration cover vuln tidy-check generate \
+.PHONY: all build run run-docker fmt fmt-check lint proto-lint test test-race test-integration cover vuln tidy-check generate \
         migrate-up migrate-down migrate-status compose-up compose-down ci
 
 all: build
@@ -14,6 +16,13 @@ build:
 
 run: build
 	./$(BINARY)
+
+# Same daemon, compose-mapped database ports (make compose-up first).
+NATIVE_DSN := postgres://trading:trading@localhost:5432/trading?sslmode=disable
+DOCKER_DSN := postgres://trading:trading@localhost:5433/trading?sslmode=disable
+run-docker: build
+	$(ENV)POSTGRES__DSN="$(DOCKER_DSN)" \
+	$(ENV)QUESTDB__CONF="http::addr=localhost:9010;" ./$(BINARY)
 
 fmt:
 	golangci-lint fmt
@@ -57,8 +66,9 @@ proto-lint:
 		$(GO) tool buf breaking --against '.git#branch=$(BUF_BASELINE)'; \
 	fi
 
+# The env DSN wins; without it, migrate against the native default.
 migrate-up migrate-down migrate-status: migrate-%:
-	$(GO) tool goose -dir internal/adapters/postgres/migrations postgres "$$DELTA__POSTGRES__DSN" $*
+	$(GO) tool goose -dir internal/adapters/postgres/migrations postgres "$${$(ENV)POSTGRES__DSN:-$(NATIVE_DSN)}" $*
 
 compose-up:
 	$(COMPOSE) up -d

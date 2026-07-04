@@ -2,21 +2,24 @@ name: delta-works
 
 # Host ports are offset (+1 or similar) so the stack coexists with natively
 # installed Postgres (5432), QuestDB (9000/8812), Prometheus (9090) and
-# Grafana (3000). config.example.yaml points at these offset ports.
+# Grafana (3000). config.example.yaml targets the native ports; `make
+# run-docker` and `make migrate-* ` reach this stack via env overrides.
 
 services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: delta
-      POSTGRES_PASSWORD: delta
-      POSTGRES_DB: delta
+      # Brand-neutral on purpose: the database identity survives a project
+      # rename (AGENTS.md).
+      POSTGRES_USER: trading
+      POSTGRES_PASSWORD: trading
+      POSTGRES_DB: trading
     ports:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U delta -d delta"]
+      test: ["CMD-SHELL", "pg_isready -U trading -d trading"]
       interval: 5s
       timeout: 3s
       retries: 10

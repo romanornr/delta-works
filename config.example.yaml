@@ -19,11 +19,13 @@ http:
 # api:
 #   addr: "unix:///tmp/control.sock" # or "127.0.0.1:8081"
 
+# Native services listen on the standard ports; the compose stack maps
+# 5433/9010 so both can coexist. `make run-docker` overrides via env.
 postgres:
-  dsn: "postgres://delta:delta@localhost:5433/delta?sslmode=disable"
+  dsn: "postgres://trading:trading@localhost:5432/trading?sslmode=disable"
 
 questdb:
-  conf: "http::addr=localhost:9010;"
+  conf: "http::addr=localhost:9000;"
 
 snapshot:
   interval: 60s
