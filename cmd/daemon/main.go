@@ -1,4 +1,5 @@
-// Command deltad is the delta-works trading daemon.
+// Command daemon is the trading daemon; the Makefile names the binary
+// (bin/$(NAME)d).
 package main
 
 import (

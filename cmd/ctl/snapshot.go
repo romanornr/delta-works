@@ -12,7 +12,7 @@ import (
 
 func runSnapshot(ctx context.Context, c clients, args []string) error {
 	if len(args) != 2 {
-		return fmt.Errorf("usage: deltactl snapshot <venue> <account>")
+		return fmt.Errorf("usage: %s snapshot <venue> <account>", prog)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
