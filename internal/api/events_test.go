@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"net"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -129,12 +127,8 @@ func TestShutdownInterruptsStream(t *testing.T) {
 	}
 	go func() { _ = srv.Serve(ln) }()
 
-	httpClient := &http.Client{Transport: &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", path)
-		},
-	}}
-	client := controlv1connect.NewEventServiceClient(httpClient, "http://localhost")
+	httpClient, baseURL := NewHTTPClient("unix://" + path)
+	client := controlv1connect.NewEventServiceClient(httpClient, baseURL)
 
 	pumpEvents(t, eventBus, []bus.Event{
 		{Subject: snapshot.SubjectTaken, At: time.Now(), Payload: testSnapshot()},
