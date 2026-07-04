@@ -14,7 +14,7 @@ make migrate-up && make run                  # daemon; metrics/health on :8080
 
 # or the docker stack on offset ports (5433/9010):
 make compose-up
-DELTA__POSTGRES__DSN='postgres://trading:trading@localhost:5433/trading?sslmode=disable' make migrate-up
+DELTA__POSTGRES__DSN='postgres://oms:oms@localhost:5433/oms?sslmode=disable' make migrate-up
 make run-docker
 ```
 

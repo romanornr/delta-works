@@ -22,7 +22,7 @@ http:
 # Native services listen on the standard ports; the compose stack maps
 # 5433/9010 so both can coexist. `make run-docker` overrides via env.
 postgres:
-  dsn: "postgres://trading:trading@localhost:5432/trading?sslmode=disable"
+  dsn: "postgres://oms:oms@localhost:5432/oms?sslmode=disable"
 
 questdb:
   conf: "http::addr=localhost:9000;"

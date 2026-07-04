@@ -18,8 +18,8 @@ run: build
 	./$(BINARY)
 
 # Same daemon, compose-mapped database ports (make compose-up first).
-NATIVE_DSN := postgres://trading:trading@localhost:5432/trading?sslmode=disable
-DOCKER_DSN := postgres://trading:trading@localhost:5433/trading?sslmode=disable
+NATIVE_DSN := postgres://oms:oms@localhost:5432/oms?sslmode=disable
+DOCKER_DSN := postgres://oms:oms@localhost:5433/oms?sslmode=disable
 run-docker: build
 	$(ENV)POSTGRES__DSN="$(DOCKER_DSN)" \
 	$(ENV)QUESTDB__CONF="http::addr=localhost:9010;" ./$(BINARY)

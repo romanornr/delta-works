@@ -10,16 +10,18 @@ services:
     image: postgres:17-alpine
     environment:
       # Brand-neutral on purpose: the database identity survives a project
-      # rename (AGENTS.md).
-      POSTGRES_USER: trading
-      POSTGRES_PASSWORD: trading
-      POSTGRES_DB: trading
+      # rename (AGENTS.md). These values only apply to an empty volume; a
+      # pgdata volume created under an older identity needs `docker compose
+      # -f deploy/docker-compose.yml down -v` first.
+      POSTGRES_USER: oms
+      POSTGRES_PASSWORD: oms
+      POSTGRES_DB: oms
     ports:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U trading -d trading"]
+      test: ["CMD-SHELL", "pg_isready -U oms -d oms"]
       interval: 5s
       timeout: 3s
       retries: 10
