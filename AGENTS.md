@@ -30,7 +30,7 @@ Everything goes through `make`:
 - **Diffs trend net-negative**: prefer unifying or removing code over adding it; extract a shared helper at the second occurrence, not the third. Ceilings are lint-enforced (dupl, funlen, gocognit, nestif). Before committing a batch of fixes, do a simplification pass over the touched files.
 - Significant design choices get an ADR in `docs/adr/` in the same change.
 - **Comments**: only where the code cannot say it itself, written in plain sentences an outside developer will still understand in five years. No em-dashes, no filler ("simply", "note that", "deliberately"), no narration of what the next line does.
-- **The project may be renamed** — never scatter the brand into code. Identity strings live in exactly these places: `config.EnvPrefix` (`DELTA__`), `BINARY` in the Makefile (+ `cmd/deltad/` dir), `name:` in `deploy/docker-compose.yml`, and the module path (mechanical `go mod edit -module` + import rewrite). Metric names, bus subjects, and database/table names stay brand-neutral (`snapshot_*`, `bus_*`, `balances`, `tickers`).
+- **The project may be renamed** — never scatter the brand into code. Identity strings live in exactly these places: `config.EnvPrefix` (`DELTA__`), `BINARY`/`CTL` in the Makefile (+ `cmd/deltad/`, `cmd/deltactl/` dirs), `name:` in `deploy/docker-compose.yml`, and the module path (mechanical `go mod edit -module` + import rewrite). Metric names, bus subjects, and database/table names stay brand-neutral (`snapshot_*`, `bus_*`, `balances`, `tickers`).
 
 ## Tooling available to AI assistants
 

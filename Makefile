@@ -1,5 +1,6 @@
 GO      ?= go
 BINARY  := bin/deltad
+CTL     := bin/deltactl
 COMPOSE := docker compose -f deploy/docker-compose.yml
 
 .PHONY: all build run fmt fmt-check lint proto-lint test test-race test-integration cover vuln tidy-check generate \
@@ -9,6 +10,7 @@ all: build
 
 build:
 	$(GO) build -o $(BINARY) ./cmd/deltad
+	$(GO) build -o $(CTL) ./cmd/deltactl
 
 run: build
 	./$(BINARY)

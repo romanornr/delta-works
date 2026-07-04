@@ -73,6 +73,10 @@ linters:
           - gocognit
           - gosec
           - unparam
+      # Printing is the product of a CLI.
+      - path: cmd/deltactl/
+        linters:
+          - forbidigo
 
 formatters:
   enable:
