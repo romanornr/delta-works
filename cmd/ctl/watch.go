@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -51,14 +52,18 @@ type (
 )
 
 var (
-	titleStyle  = lipgloss.NewStyle().Bold(true)
+	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("62")).Padding(0, 1)
 	subtleStyle = lipgloss.NewStyle().Faint(true)
+	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212")).Padding(0, 1)
+	cellStyle   = lipgloss.NewStyle().Padding(0, 1)
+	statusStyle = lipgloss.NewStyle().Faint(true).Padding(0, 1)
 )
 
 type watchModel struct {
 	snapshots map[string]*controlv1.AccountSnapshot
 	events    int
 	lastAt    time.Time
+	height    int
 	err       error
 }
 
@@ -70,6 +75,8 @@ func (m watchModel) Init() tea.Cmd { return nil }
 
 func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.height = msg.Height
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -92,17 +99,32 @@ func (m watchModel) View() tea.View {
 	if m.err != nil {
 		return tea.NewView("stream error: " + m.err.Error() + "\n")
 	}
-	view := titleStyle.Render("balances") + "\n"
-	if len(m.snapshots) == 0 {
-		view += subtleStyle.Render("waiting for the first snapshot event…") + "\n"
-	} else {
-		view += balanceTable(m.snapshots) + "\n"
+	body := subtleStyle.Render("waiting for the first snapshot event…")
+	if len(m.snapshots) > 0 {
+		body = balanceTable(m.snapshots)
 	}
-	status := fmt.Sprintf("events=%d", m.events)
+	content := titleStyle.Render("balances") + "\n\n" + body
+
+	status := fmt.Sprintf("%d accounts · %d events", len(m.snapshots), m.events)
 	if !m.lastAt.IsZero() {
-		status += "  last=" + m.lastAt.Local().Format("15:04:05")
+		status += " · updated " + m.lastAt.Local().Format("15:04:05")
 	}
-	return tea.NewView(view + subtleStyle.Render(status+"  q to quit") + "\n")
+	if m.height > 0 {
+		lines := strings.Split(content, "\n")
+		switch budget := m.height - 1; {
+		case len(lines) > budget:
+			lines = append(lines[:budget-1], subtleStyle.Render("…"))
+		case len(lines) < budget:
+			lines = append(lines, make([]string, budget-len(lines))...)
+		}
+		content = strings.Join(lines, "\n")
+	}
+	content += "\n" + statusStyle.Render(status+" · q to quit")
+
+	v := tea.NewView(content)
+	v.AltScreen = true
+	v.WindowTitle = "watch"
+	return v
 }
 
 func balanceTable(snapshots map[string]*controlv1.AccountSnapshot) string {
@@ -112,11 +134,36 @@ func balanceTable(snapshots map[string]*controlv1.AccountSnapshot) string {
 	}
 	sort.Strings(keys)
 
-	t := table.New().Headers("ACCOUNT", "CURRENCY", "TOTAL", "FREE", "LOCKED")
+	var rows [][]string
 	for _, k := range keys {
-		for _, b := range snapshots[k].GetBalances() {
-			t.Row(k, b.GetCurrency(), b.GetTotal(), b.GetFree(), b.GetLocked())
+		balances := append([]*controlv1.Balance(nil), snapshots[k].GetBalances()...)
+		sort.SliceStable(balances, func(i, j int) bool {
+			zi, zj := balances[i].GetTotal() == "0", balances[j].GetTotal() == "0"
+			if zi != zj {
+				return zj
+			}
+			return balances[i].GetCurrency() < balances[j].GetCurrency()
+		})
+		for _, b := range balances {
+			rows = append(rows, []string{k, b.GetCurrency(), b.GetTotal(), b.GetFree(), b.GetLocked()})
 		}
 	}
-	return t.String()
+
+	return table.New().
+		Headers("ACCOUNT", "CURRENCY", "TOTAL", "FREE", "LOCKED").
+		BorderStyle(subtleStyle).
+		Rows(rows...).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			if row == table.HeaderRow {
+				return headerStyle
+			}
+			s := cellStyle
+			if col >= 2 {
+				s = s.Align(lipgloss.Right)
+			}
+			if rows[row][2] == "0" {
+				s = s.Faint(true)
+			}
+			return s
+		}).String()
 }

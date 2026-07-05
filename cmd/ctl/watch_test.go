@@ -40,13 +40,23 @@ func TestWatchModel(t *testing.T) {
 	m, _ = m.Update(snapshotEvent("kraken", "margin", "9"))
 
 	view = m.View().Content
-	for _, want := range []string{"bybit/spot", "2.5", "kraken/margin", "9", "events=3"} {
+	for _, want := range []string{"bybit/spot", "2.5", "kraken/margin", "9", "2 accounts · 3 events", "· updated ", "q to quit"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
 	}
 	if strings.Contains(view, "1.5") {
 		t.Fatalf("stale balance not replaced by newer snapshot:\n%s", view)
+	}
+
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
+	view = m.View().Content
+	lines := strings.Split(view, "\n")
+	if len(lines) != 6 {
+		t.Fatalf("view is %d lines, want terminal height 6:\n%s", len(lines), view)
+	}
+	if !strings.Contains(view, "…") || !strings.Contains(lines[5], "q to quit") {
+		t.Fatalf("overflow not cropped with status bar on the last row:\n%s", view)
 	}
 
 	m, _ = m.Update(streamErrMsg{errors.New("boom")})
