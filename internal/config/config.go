@@ -22,6 +22,7 @@ type Config struct {
 	Postgres Postgres         `koanf:"postgres"`
 	QuestDB  QuestDB          `koanf:"questdb"`
 	Snapshot Snapshot         `koanf:"snapshot"`
+	Outbox   Outbox           `koanf:"outbox"`
 	Venues   map[string]Venue `koanf:"venues"`
 }
 
@@ -57,6 +58,12 @@ type QuestDB struct {
 // Snapshot configures the portfolio snapshot poller.
 type Snapshot struct {
 	Interval time.Duration `koanf:"interval"`
+}
+
+// Outbox configures the outbox relay (ADR-0008).
+type Outbox struct {
+	Interval time.Duration `koanf:"interval"`
+	Batch    int           `koanf:"batch"`
 }
 
 // Venue configures one exchange connection. Each credential is either a
@@ -98,6 +105,12 @@ func (c Config) Validate() error {
 	if c.Snapshot.Interval <= 0 {
 		errs = append(errs, fmt.Errorf("snapshot.interval %s: must be positive", c.Snapshot.Interval))
 	}
+	if c.Outbox.Interval < 200*time.Millisecond || c.Outbox.Interval > time.Second {
+		errs = append(errs, fmt.Errorf("outbox.interval %s: must be between 200ms and 1s", c.Outbox.Interval))
+	}
+	if c.Outbox.Batch <= 0 || c.Outbox.Batch > 1000 {
+		errs = append(errs, fmt.Errorf("outbox.batch %d: must be between 1 and 1000", c.Outbox.Batch))
+	}
 	if c.Postgres.DSN == "" {
 		errs = append(errs, errors.New("postgres.dsn: must not be empty"))
 	}
@@ -105,20 +118,26 @@ func (c Config) Validate() error {
 		errs = append(errs, errors.New("questdb.conf: must not be empty"))
 	}
 	for name, v := range c.Venues {
-		if !v.Enabled {
-			continue
-		}
-		if v.Rate.RPS <= 0 || v.Rate.Burst <= 0 {
-			errs = append(errs, fmt.Errorf("venues.%s.rate: rps and burst must be positive", name))
-		}
-		if len(v.Accounts) == 0 {
-			errs = append(errs, fmt.Errorf("venues.%s.accounts: at least one account required", name))
-		}
-		if v.APIKey == "" || v.APISecret == "" {
-			errs = append(errs, fmt.Errorf("venues.%s: api_key and api_secret are required for an enabled venue; balance snapshots authenticate", name))
-		}
+		errs = append(errs, v.validate(name)...)
 	}
 	return errors.Join(errs...)
+}
+
+func (v Venue) validate(name string) []error {
+	if !v.Enabled {
+		return nil
+	}
+	var errs []error
+	if v.Rate.RPS <= 0 || v.Rate.Burst <= 0 {
+		errs = append(errs, fmt.Errorf("venues.%s.rate: rps and burst must be positive", name))
+	}
+	if len(v.Accounts) == 0 {
+		errs = append(errs, fmt.Errorf("venues.%s.accounts: at least one account required", name))
+	}
+	if v.APIKey == "" || v.APISecret == "" {
+		errs = append(errs, fmt.Errorf("venues.%s: api_key and api_secret are required for an enabled venue; balance snapshots authenticate", name))
+	}
+	return errs
 }
 
 // EnabledVenues returns the names of venues with enabled: true.

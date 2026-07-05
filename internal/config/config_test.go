@@ -164,6 +164,8 @@ func TestValidateRejectsBadValues(t *testing.T) {
 		{"bad format", func(c *Config) { c.Log.Format = "xml" }},
 		{"empty addr", func(c *Config) { c.HTTP.Addr = "" }},
 		{"zero interval", func(c *Config) { c.Snapshot.Interval = 0 }},
+		{"outbox interval out of range", func(c *Config) { c.Outbox.Interval = 5 * time.Second }},
+		{"outbox batch out of range", func(c *Config) { c.Outbox.Batch = 0 }},
 		{"enabled venue without accounts", func(c *Config) {
 			c.Venues = map[string]Venue{"x": {Enabled: true, Rate: Rate{RPS: 1, Burst: 1}}}
 		}},
@@ -193,6 +195,7 @@ func TestValidateRejectsBadValues(t *testing.T) {
 				Postgres: Postgres{DSN: "postgres://user:pass@localhost:5432/db"},
 				QuestDB:  QuestDB{Conf: "http::addr=localhost:9000;"},
 				Snapshot: Snapshot{Interval: time.Minute},
+				Outbox:   Outbox{Interval: 500 * time.Millisecond, Batch: 100},
 			}
 			tt.mutate(&cfg)
 			if err := cfg.Validate(); err == nil {

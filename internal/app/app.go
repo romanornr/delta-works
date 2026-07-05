@@ -26,6 +26,7 @@ import (
 	"github.com/romanornr/delta-works/internal/exchange"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
+	"github.com/romanornr/delta-works/internal/service/outbox"
 	"github.com/romanornr/delta-works/internal/service/snapshot"
 	"github.com/romanornr/delta-works/internal/telemetry"
 )
@@ -56,15 +57,18 @@ func New(configPath string, configExplicit bool) *fx.App {
 			newExchangeRegistry,
 			newPostgres,
 			fx.Annotate(postgres.NewCheckpointStore, fx.As(new(ports.CheckpointStore))),
+			fx.Annotate(postgres.NewOutboxStore, fx.As(new(ports.OutboxStore))),
 			newQuestDB,
 			fx.Annotate(postgres.NewHealth, fx.As(new(ports.HealthChecker)), fx.ResultTags(`group:"health"`)),
 			fx.Annotate(newQuestDBHealth, fx.As(new(ports.HealthChecker)), fx.ResultTags(`group:"health"`)),
 			snapshot.NewMetrics,
 			newSnapshotService,
+			outbox.NewMetrics,
+			newOutboxService,
 			api.NewSnapshotServer,
 			api.NewEventServer,
 		),
-		fx.Invoke(registerBusMetrics, startTelemetryServer, startAPIServer, startSnapshotService, logStartup),
+		fx.Invoke(registerBusMetrics, startTelemetryServer, startAPIServer, startSnapshotService, startOutboxService, logStartup),
 	)
 }
 
@@ -139,19 +143,31 @@ func newSnapshotService(
 	return snapshot.New(registry, series, checkpoints, eventBus, clk, l, cfg.Snapshot.Interval, targets, m)
 }
 
-// startSnapshotService ties the poller to the fx lifecycle. A non-nil error
-// from Run means infrastructure loss; the process exits non-zero so the
-// supervisor (compose, systemd) restarts it.
+func newOutboxService(cfg config.Config, store ports.OutboxStore, eventBus bus.Bus, clk clock.Clock, l log.Logger, m *outbox.Metrics) *outbox.Service {
+	return outbox.New(store, eventBus, clk, l, cfg.Outbox.Interval, cfg.Outbox.Batch, m)
+}
+
 func startSnapshotService(lc fx.Lifecycle, svc *snapshot.Service, l log.Logger, shutdowner fx.Shutdowner) {
-	logger := log.Component(l, "snapshot")
+	startService(lc, "snapshot", svc.Run, l, shutdowner)
+}
+
+func startOutboxService(lc fx.Lifecycle, svc *outbox.Service, l log.Logger, shutdowner fx.Shutdowner) {
+	startService(lc, "outbox", svc.Run, l, shutdowner)
+}
+
+// startService ties a background service to the fx lifecycle. A non-nil
+// error from run means infrastructure loss; the process exits non-zero so
+// the supervisor (compose, systemd) restarts it.
+func startService(lc fx.Lifecycle, name string, run func(context.Context) error, l log.Logger, shutdowner fx.Shutdowner) {
+	logger := log.Component(l, name)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			go func() {
 				defer close(done)
-				if err := svc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-					logger.Error().Err(err).Msg("snapshot service failed")
+				if err := run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+					logger.Error().Err(err).Msg("service failed")
 					_ = shutdowner.Shutdown(fx.ExitCode(1))
 				}
 			}()
