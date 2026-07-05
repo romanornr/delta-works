@@ -24,6 +24,7 @@ Long-lived multi-exchange trading platform (see [ROADMAP.md](../ROADMAP.md)). Pr
 | WebSocket | coder/websocket (when native adapters/streaming arrive) | maintained successor to nhooyr; preferred over gorilla for new code |
 | Concurrency | context + errgroup; one actor goroutine per bot later | cancellation-first design |
 | Testing | testcontainers-go for Postgres/QuestDB integration; `-race -shuffle=on` always | real dependencies in CI |
+| Order IDs | oklog/ulid/v2 in `internal/id` | sortable, uniform idempotency keys; domain stays pure |
 
 Enforcement: golangci-lint v2 (staticcheck, revive, gosec, misspell, depguard, …), govulncheck, `go mod tidy` drift check — all wired through `make ci` and GitHub Actions.
 
