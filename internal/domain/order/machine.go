@@ -76,11 +76,6 @@ func Transition(current State, ev Event) (Decision, error) {
 	}
 
 	delta := ev.FilledQty.Sub(current.FilledQty)
-	if delta.IsNegative() {
-		// A shrinking cumulative fill is a venue anomaly. Never un-fill;
-		// the caller counts it and publishes an anomaly event.
-		return Decision{To: current.Status, Drop: DropNegativeFill}, nil
-	}
 
 	// A pending event carries no execution facts: fills cannot exist
 	// before the venue has accepted the order.
@@ -92,15 +87,22 @@ func Transition(current State, ev Event) (Decision, error) {
 	switch {
 	case curRank == terminalRank:
 		return Decision{To: current.Status, FillDelta: fill, Drop: DropTerminal}, nil
+	case evRank < curRank:
+		// Rank-regressing events are ordinary out-of-order traffic; a
+		// lower cumulative there is expected, not an anomaly.
+		return Decision{To: current.Status, FillDelta: fill, Drop: DropStale}, nil
+	case delta.IsNegative():
+		// A shrinking cumulative fill from a same-or-higher-rank event is
+		// a venue anomaly. Never un-fill; the caller counts it and
+		// publishes an anomaly event.
+		return Decision{To: current.Status, Drop: DropNegativeFill}, nil
 	case evRank > curRank:
 		return Decision{Transition: true, To: ev.Status, FillDelta: fill}, nil
-	case evRank == curRank:
+	default:
 		if ev.Status == StatusPartiallyFilled && fill.IsPositive() {
 			// Another partial fill: same status, new cumulative quantity.
 			return Decision{Transition: true, To: ev.Status, FillDelta: fill}, nil
 		}
 		return Decision{To: current.Status, FillDelta: fill, Drop: DropDuplicate}, nil
-	default:
-		return Decision{To: current.Status, FillDelta: fill, Drop: DropStale}, nil
 	}
 }

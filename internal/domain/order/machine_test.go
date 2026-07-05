@@ -45,9 +45,29 @@ var applies = map[order.Status]map[order.Status]bool{
 	order.StatusExpired:  {},
 }
 
+var testRank = map[order.Status]int{
+	order.StatusPending:         0,
+	order.StatusOpen:            1,
+	order.StatusPartiallyFilled: 2,
+	order.StatusFilled:          3,
+	order.StatusCanceled:        3,
+	order.StatusRejected:        3,
+	order.StatusExpired:         3,
+}
+
 func wantDecision(stored, ev order.Status, delta int) order.Decision {
 	if delta < 0 {
-		return order.Decision{To: stored, Drop: order.DropNegativeFill}
+		// Only a same-or-higher-rank event shrinking the cumulative fill
+		// is an anomaly; stale and post-terminal events with lower
+		// cumulative are ordinary out-of-order traffic.
+		switch {
+		case testRank[stored] == 3:
+			return order.Decision{To: stored, Drop: order.DropTerminal}
+		case testRank[ev] < testRank[stored]:
+			return order.Decision{To: stored, Drop: order.DropStale}
+		default:
+			return order.Decision{To: stored, Drop: order.DropNegativeFill}
+		}
 	}
 
 	// Execution facts are extracted from any non-pending event, even when
