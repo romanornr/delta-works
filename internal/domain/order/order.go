@@ -9,6 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/romanornr/delta-works/internal/domain/instrument"
+	"github.com/romanornr/delta-works/internal/domain/money"
 )
 
 // ClientOrderID is OUR identifier, generated before submission. It is the
@@ -51,6 +52,7 @@ const (
 // Request is an order to submit.
 type Request struct {
 	ClientOrderID ClientOrderID
+	BotID         string // owning bot; control-plane orders use the reserved "manual"
 	Instrument    instrument.Instrument
 	Side          Side
 	Type          Type
@@ -81,11 +83,15 @@ type Snapshot struct {
 	UpdatedAt time.Time
 }
 
-// Event is a change to an order reported by a venue stream.
+// Event is a change to an order reported by a venue. FilledQty is
+// cumulative; the state machine derives per-fill deltas from it.
 type Event struct {
-	Ref       Ref
-	Status    Status
-	FilledQty decimal.Decimal
-	FillPrice decimal.Decimal
-	At        time.Time
+	Ref         Ref
+	Status      Status
+	FilledQty   decimal.Decimal
+	FillPrice   decimal.Decimal
+	VenueFillID string // venue's fill identifier when provided; enables exact fill dedupe
+	Fee         decimal.Decimal
+	FeeCurrency money.Currency
+	At          time.Time
 }
