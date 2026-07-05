@@ -17,7 +17,7 @@ Everything goes through `make`:
 | `make proto-lint` | buf lint + breaking-change check against main |
 | `make migrate-up/-down/-status` | goose against `$DELTA__POSTGRES__DSN` |
 | `make compose-up` | Postgres + QuestDB (`--profile observability` adds Prometheus/Grafana) |
-| `make ci` | the full local gate: fmt-check, lint, proto-lint, vuln, test-race, tidy-check |
+| `make ci` | the full local gate: fmt-check, lint, proto-lint, identity-check, vuln, test-race, tidy-check |
 
 ## Architecture rules (lint-enforced where possible)
 
@@ -31,7 +31,7 @@ Everything goes through `make`:
 - **Diffs trend net-negative**: prefer unifying or removing code over adding it; extract a shared helper at the second occurrence, not the third. Ceilings are lint-enforced (dupl, funlen, gocognit, nestif). Before committing a batch of fixes, do a simplification pass over the touched files.
 - Significant design choices get an ADR in `docs/adr/` in the same change.
 - **Comments**: only where the code cannot say it itself, written in plain sentences an outside developer will still understand in five years. No em-dashes, no filler ("simply", "note that", "deliberately"), no narration of what the next line does.
-- **The project may be renamed** — never scatter the brand into code. Identity strings live in exactly these places: `config.EnvPrefix` (`DELTA__`), `BINARY`/`CTL`/`ENV` in the Makefile (+ `cmd/deltad/`, `cmd/deltactl/` dirs), `name:` in `deploy/docker-compose.yml`, and the module path (mechanical `go mod edit -module` + import rewrite). Metric names, bus subjects, and database/table names stay brand-neutral (`snapshot_*`, `bus_*`, `balances`, `tickers`).
+- **The project may be renamed** — never spell the brand in code. Renaming the operational surface is exactly: 1) `NAME` in the Makefile (`ENV` derives from it; `identity-check` fails ci until step 2 matches), 2) `config.EnvPrefix`, 3) `name:` in `deploy/docker-compose.yml`, 4) the module path (mechanical `go mod edit -module` + import rewrite). Everything derives: binaries are `bin/$(NAME)d`/`bin/$(NAME)ctl` built from the neutral `cmd/daemon`/`cmd/ctl` dirs, the CLI identifies itself from argv[0], env var names come from `config.EnvPrefix`. Wire package (`control.v1`), metric names, bus subjects, and database/table names (`oms`, `snapshot_*`, `bus_*`) stay brand-neutral always.
 
 ## Tooling available to AI assistants
 

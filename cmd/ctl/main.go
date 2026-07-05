@@ -1,5 +1,7 @@
-// deltactl is the operator CLI for the daemon's control plane (ADR-0007).
-// It speaks the same ConnectRPC API every other client uses.
+// Command ctl is the operator CLI for the daemon's control plane
+// (ADR-0007). It speaks the same ConnectRPC API every other client uses;
+// the Makefile names the binary (bin/$(NAME)ctl) and the CLI identifies
+// itself from argv[0].
 package main
 
 import (
@@ -7,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/romanornr/delta-works/internal/api"
 	"github.com/romanornr/delta-works/internal/api/gen/control/v1/controlv1connect"
@@ -15,9 +18,10 @@ import (
 
 // addrEnv derives from config.EnvPrefix so a project rename touches one
 // constant (AGENTS.md).
-var addrEnv = config.EnvPrefix + "API__ADDR"
-
-var usage = `usage: deltactl [-addr address] <command>
+var (
+	addrEnv = config.EnvPrefix + "API__ADDR"
+	prog    = filepath.Base(os.Args[0])
+	usage   = `usage: ` + prog + ` [-addr address] <command>
 
 commands:
   snapshot <venue> <account>   print the last snapshot checkpoint
@@ -27,6 +31,7 @@ commands:
 The address comes from -addr or ` + addrEnv + `, in the same forms the
 daemon accepts: unix:///path/to.sock or host:port.
 `
+)
 
 type clients struct {
 	snapshots controlv1connect.SnapshotServiceClient
@@ -35,13 +40,13 @@ type clients struct {
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "deltactl:", err)
+		fmt.Fprintln(os.Stderr, prog+":", err)
 		os.Exit(1)
 	}
 }
 
 func run(args []string) error {
-	flags := flag.NewFlagSet("deltactl", flag.ExitOnError)
+	flags := flag.NewFlagSet(prog, flag.ExitOnError)
 	flags.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	addr := flags.String("addr", os.Getenv(addrEnv), "control-plane address")
 	_ = flags.Parse(args)
