@@ -21,6 +21,8 @@ func defaults() map[string]any {
 		"log.format":        "console",
 		"http.addr":         ":8080",
 		"snapshot.interval": "60s",
+		"outbox.interval":   "500ms",
+		"outbox.batch":      100,
 	}
 }
 
