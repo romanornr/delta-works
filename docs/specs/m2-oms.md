@@ -45,7 +45,7 @@ Transition table (event status × stored status → decision):
 
 Apply is idempotent and runs in one transaction with `SELECT ... FOR UPDATE` on the order row:
 
-1. Fill delta = event cumulative filled qty − stored filled qty. Delta > 0 inserts a `fills` row (deduped by `venue_fill_id` where the venue provides one). Negative delta is an anomaly: drop, count, publish an anomaly event — never un-fill.
+1. Fill delta = event cumulative filled qty − stored filled qty. Delta > 0 inserts a `fills` row (deduped by `venue_fill_id` where the venue provides one). A negative delta from a same-or-higher-rank event is an anomaly: drop, count, publish an anomaly event — never un-fill. Rank-regressing events with a lower cumulative are ordinary stale traffic, dropped by the rank rule.
 2. Status change appends an `order_transitions` row (`seq` increments per order) and updates the order row.
 3. Ledger postings (below) happen in the same transaction.
 4. Outbox rows for `order.updated` / `order.filled` are inserted in the same transaction (ADR-0008).

@@ -8,7 +8,63 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 )
+
+type Fill struct {
+	ID            int64
+	ClientOrderID string
+	TransitionID  int64
+	Qty           decimal.Decimal
+	Price         pgtype.Numeric
+	Fee           pgtype.Numeric
+	FeeCurrency   *string
+	VenueFillID   *string
+	OccurredAt    time.Time
+}
+
+type Order struct {
+	ClientOrderID     string
+	Venue             string
+	Base              string
+	Quote             string
+	VenueSymbol       string
+	Side              string
+	Type              string
+	Price             decimal.Decimal
+	Qty               decimal.Decimal
+	FilledQty         decimal.Decimal
+	AvgFillPrice      pgtype.Numeric
+	Status            string
+	VenueOrderID      *string
+	BotID             string
+	CancelRequestedAt pgtype.Timestamptz
+	Reason            *string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type OrderTransition struct {
+	ID            int64
+	ClientOrderID string
+	Seq           int32
+	FromStatus    string
+	ToStatus      string
+	FilledQty     decimal.Decimal
+	Source        string
+	Reason        *string
+	OccurredAt    time.Time
+	RecordedAt    time.Time
+}
+
+type Outbox struct {
+	ID          int64
+	Subject     string
+	Payload     []byte
+	CreatedAt   time.Time
+	PublishedAt pgtype.Timestamptz
+}
 
 type SnapshotCheckpoint struct {
 	ID           uuid.UUID

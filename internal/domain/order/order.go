@@ -83,6 +83,17 @@ type Snapshot struct {
 	UpdatedAt time.Time
 }
 
+// Source identifies which path an event reached us through.
+type Source string
+
+// Event sources, persisted on every transition.
+const (
+	SourceLocal     Source = "local"
+	SourceAck       Source = "ack"
+	SourceStream    Source = "stream"
+	SourceReconcile Source = "reconcile"
+)
+
 // Event is a change to an order reported by a venue. FilledQty is
 // cumulative; the state machine derives per-fill deltas from it.
 type Event struct {
@@ -93,5 +104,6 @@ type Event struct {
 	VenueFillID string // venue's fill identifier when provided; enables exact fill dedupe
 	Fee         decimal.Decimal
 	FeeCurrency money.Currency
+	Reason      string // venue-provided reason for reject, cancel or expiry
 	At          time.Time
 }
