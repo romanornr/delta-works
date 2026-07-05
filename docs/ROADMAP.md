@@ -2,13 +2,13 @@
 
 The long-term goal is a serious, multi-exchange trading platform — not a portfolio tracker. Milestones build on each other; later items are recorded now so early design decisions don't paint them into a corner.
 
-## M1 — Foundation + read-only exchange (current)
+## M1 — Foundation + read-only exchange
 
 Tooling-first skeleton (lint/CI/compose), core runtime (config, logging, DI, metrics, in-proc bus), pure domain layer, GCT adapter behind ports with rate-limit + breaker, Postgres checkpoints + QuestDB time-series, portfolio snapshot daemon. Spec: [specs/m1-foundation.md](specs/m1-foundation.md).
 
-## M2 — Order management
+## M2 — Order management (current)
 
-Pure order state machine (every transition persisted: orders/fills tables), our ULID client order IDs as idempotency keys, private order-event streaming with reconnect, reconciliation loop diffing venue open orders vs local state, per-bot ledger with lots, Postgres outbox → bus.
+Pure order state machine (every transition persisted: orders/fills tables), our ULID client order IDs as idempotency keys, private order-event streaming with reconnect, reconciliation loop diffing venue open orders vs local state, per-bot ledger with lots, Postgres outbox → bus. Spec: [specs/m2-oms.md](specs/m2-oms.md).
 
 ## M3 — Grid bots
 
