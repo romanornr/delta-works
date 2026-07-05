@@ -77,6 +77,22 @@ func Load(path string, explicit bool) (Config, error) {
 	return cfg, nil
 }
 
+// APIAddr returns the control-plane address from the config file, or ""
+// when the file or key is absent. Clients use it to find the daemon
+// without needing a complete, validated daemon configuration. Errors other
+// than a missing file (unreadable, invalid YAML) are returned so they are
+// not mistaken for an unconfigured address.
+func APIAddr(path string) (string, error) {
+	k := koanf.New(".")
+	if err := k.Load(file.Provider(path), yaml.Parser()); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", nil
+		}
+		return "", fmt.Errorf("load config file %s: %w", path, err)
+	}
+	return k.String("api.addr"), nil
+}
+
 // resolveSecretFiles reads secret files into APIKey and APISecret so the
 // rest of the application only sees resolved values. Disabled venues are
 // skipped: their secret files may not exist.
