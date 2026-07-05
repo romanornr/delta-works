@@ -201,3 +201,33 @@ func TestValidateRejectsBadValues(t *testing.T) {
 		})
 	}
 }
+
+func TestAPIAddr(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		missing bool
+		want    string
+		wantErr bool
+	}{
+		{name: "set", content: "api:\n  addr: unix:///tmp/x.sock\n", want: "unix:///tmp/x.sock"},
+		{name: "absent key", content: "log:\n  level: info\n", want: ""},
+		{name: "missing file", missing: true, want: ""},
+		{name: "invalid yaml", content: "api: [broken\n", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if !tt.missing {
+				path = writeFile(t, tt.content)
+			}
+			got, err := APIAddr(path)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("APIAddr error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Fatalf("APIAddr = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

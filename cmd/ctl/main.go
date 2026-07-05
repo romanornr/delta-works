@@ -21,15 +21,16 @@ import (
 var (
 	addrEnv = config.EnvPrefix + "API__ADDR"
 	prog    = filepath.Base(os.Args[0])
-	usage   = `usage: ` + prog + ` [-addr address] <command>
+	usage   = `usage: ` + prog + ` [-addr address] [-config path] <command>
 
 commands:
   snapshot <venue> <account>   print the last snapshot checkpoint
   events [-prefix p]           stream bus events as JSON lines
   watch                        live balances view (q to quit)
 
-The address comes from -addr or ` + addrEnv + `, in the same forms the
-daemon accepts: unix:///path/to.sock or host:port.
+The address is resolved from -addr, then ` + addrEnv + `, then api.addr in
+the config file, in the same forms the daemon accepts:
+unix:///path/to.sock or host:port.
 `
 )
 
@@ -48,7 +49,8 @@ func main() {
 func run(args []string) error {
 	flags := flag.NewFlagSet(prog, flag.ExitOnError)
 	flags.Usage = func() { fmt.Fprint(os.Stderr, usage) }
-	addr := flags.String("addr", os.Getenv(addrEnv), "control-plane address")
+	addr := flags.String("addr", "", "control-plane address (default: env, then config file)")
+	configPath := flags.String("config", "config.yaml", "path to the daemon's configuration file")
 	_ = flags.Parse(args)
 
 	if flags.NArg() == 0 {
@@ -56,7 +58,17 @@ func run(args []string) error {
 		return fmt.Errorf("missing command")
 	}
 	if *addr == "" {
-		return fmt.Errorf("no address: pass -addr or set %s", addrEnv)
+		*addr = os.Getenv(addrEnv)
+	}
+	if *addr == "" {
+		fromFile, err := config.APIAddr(*configPath)
+		if err != nil {
+			return err
+		}
+		*addr = fromFile
+	}
+	if *addr == "" {
+		return fmt.Errorf("no address: pass -addr, set %s, or set api.addr in %s", addrEnv, *configPath)
 	}
 
 	httpClient, baseURL := api.NewHTTPClient(*addr)

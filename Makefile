@@ -8,6 +8,10 @@ CTL     := bin/$(NAME)ctl
 ENV     := $(shell echo '$(NAME)' | tr 'a-z-' 'A-Z_')__
 COMPOSE := docker compose -f deploy/docker-compose.yml
 
+# Machine-specific overrides (gitignored), e.g. NATIVE_DSN for a
+# nonstandard local Postgres.
+-include local.mk
+
 .PHONY: all build run run-docker fmt fmt-check lint proto-lint identity-check test test-race test-integration cover vuln tidy-check generate \
         migrate-up migrate-down migrate-status compose-up compose-down ci
 
@@ -21,7 +25,7 @@ run: build
 	./$(BINARY)
 
 # Same daemon, compose-mapped database ports (make compose-up first).
-NATIVE_DSN := postgres://oms:oms@localhost:5432/oms?sslmode=disable
+NATIVE_DSN ?= postgres://oms:oms@localhost:5432/oms?sslmode=disable
 DOCKER_DSN := postgres://oms:oms@localhost:5433/oms?sslmode=disable
 run-docker: build
 	$(ENV)POSTGRES__DSN="$(DOCKER_DSN)" \
