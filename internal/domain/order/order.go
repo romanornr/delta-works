@@ -67,9 +67,12 @@ type Ref struct {
 	VenueOrderID  string
 }
 
-// Ack is the venue's acceptance of a Request.
+// Ack is the venue's acceptance of a Request. Status is the state the
+// venue reported at submit time; fills are never taken from the ack, they
+// arrive through the stream or reconciliation.
 type Ack struct {
 	Ref        Ref
+	Status     Status
 	AcceptedAt time.Time
 }
 

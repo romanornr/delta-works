@@ -42,6 +42,7 @@ func New(ctx context.Context, venue string, cfg config.Venue) (*Exchange, error)
 		return nil, fmt.Errorf("gct: default config for %q: %w", venue, err)
 	}
 	applyCredentials(defaultCfg, cfg)
+	enableWebsocket(defaultCfg)
 
 	if err := exch.Setup(defaultCfg); err != nil {
 		return nil, fmt.Errorf("gct: setup %q: %w", venue, err)
@@ -55,8 +56,18 @@ func applyCredentials(defaultCfg *gctconfig.Exchange, cfg config.Venue) {
 		return
 	}
 	defaultCfg.API.AuthenticatedSupport = true
+	defaultCfg.API.AuthenticatedWebsocketSupport = true
 	defaultCfg.API.Credentials.Key = cfg.APIKey
 	defaultCfg.API.Credentials.Secret = cfg.APISecret
+}
+
+// enableWebsocket turns the venue's websocket on when it has one, so the
+// private order stream (ports.PrivateStreamer) can connect. Setup only
+// configures the socket; nothing connects until StreamOrderEvents.
+func enableWebsocket(defaultCfg *gctconfig.Exchange) {
+	if defaultCfg.Features != nil && defaultCfg.Features.Supports.Websocket {
+		defaultCfg.Features.Enabled.Websocket = true
+	}
 }
 
 // ID implements ports.Exchange.
