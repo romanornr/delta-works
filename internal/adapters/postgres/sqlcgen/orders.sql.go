@@ -216,3 +216,23 @@ func (q *Queries) InsertTransition(ctx context.Context, arg InsertTransitionPara
 	err := row.Scan(&i.ID, &i.Seq)
 	return i, err
 }
+
+const markCancelRequested = `-- name: MarkCancelRequested :execrows
+UPDATE orders
+SET cancel_requested_at = COALESCE(cancel_requested_at, $2),
+    updated_at          = now()
+WHERE client_order_id = $1
+`
+
+type MarkCancelRequestedParams struct {
+	ClientOrderID     string
+	CancelRequestedAt pgtype.Timestamptz
+}
+
+func (q *Queries) MarkCancelRequested(ctx context.Context, arg MarkCancelRequestedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markCancelRequested, arg.ClientOrderID, arg.CancelRequestedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

@@ -16,6 +16,7 @@ var (
 	ErrAuth               = errors.New("authentication failed")
 	ErrRateLimited        = errors.New("rate limited by venue")
 	ErrUnsupportedAccount = errors.New("unsupported account type")
+	ErrTradingUnsupported = errors.New("venue adapter does not support trading")
 )
 
 // MarketDataReader provides public market data.

@@ -196,6 +196,21 @@ func avgFillPrice(row sqlcgen.Order, decision order.Decision, ev order.Event, ne
 	return nullNumeric(newAvg)
 }
 
+// MarkCancelRequested stamps the cancel intent; the first timestamp wins.
+func (s *OrderStore) MarkCancelRequested(ctx context.Context, id order.ClientOrderID, at time.Time) error {
+	n, err := s.q.MarkCancelRequested(ctx, sqlcgen.MarkCancelRequestedParams{
+		ClientOrderID:     string(id),
+		CancelRequestedAt: pgtype.Timestamptz{Time: at.UTC(), Valid: true},
+	})
+	if err != nil {
+		return fmt.Errorf("postgres: mark cancel requested: %w", err)
+	}
+	if n == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
 // GetOrder returns the stored order, or ports.ErrNotFound.
 func (s *OrderStore) GetOrder(ctx context.Context, id order.ClientOrderID) (ports.StoredOrder, error) {
 	row, err := s.q.GetOrder(ctx, string(id))

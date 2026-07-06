@@ -6,6 +6,12 @@ ON CONFLICT (client_order_id) DO NOTHING;
 -- name: GetOrder :one
 SELECT * FROM orders WHERE client_order_id = $1;
 
+-- name: MarkCancelRequested :execrows
+UPDATE orders
+SET cancel_requested_at = COALESCE(cancel_requested_at, $2),
+    updated_at          = now()
+WHERE client_order_id = $1;
+
 -- name: GetOrderForUpdate :one
 SELECT * FROM orders WHERE client_order_id = $1 FOR UPDATE;
 

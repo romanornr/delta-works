@@ -12,6 +12,7 @@ import (
 	"github.com/romanornr/delta-works/internal/domain/account"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	"github.com/romanornr/delta-works/internal/domain/marketdata"
+	"github.com/romanornr/delta-works/internal/domain/order"
 	"github.com/romanornr/delta-works/internal/ports"
 )
 
@@ -152,5 +153,64 @@ func TestRegistry(t *testing.T) {
 	}
 	if len(r.All()) != 2 {
 		t.Errorf("duplicate registration not ignored: %d", len(r.All()))
+	}
+}
+
+type fakeTradingExchange struct {
+	fakeExchange
+	placeCalls int
+}
+
+func (f *fakeTradingExchange) PlaceOrder(_ context.Context, req order.Request) (order.Ack, error) {
+	f.placeCalls++
+	return order.Ack{Ref: order.Ref{ClientOrderID: req.ClientOrderID}}, f.err
+}
+func (f *fakeTradingExchange) CancelOrder(context.Context, order.Ref) error { return f.err }
+func (f *fakeTradingExchange) OpenOrders(context.Context) ([]order.Snapshot, error) {
+	return nil, f.err
+}
+
+func (f *fakeTradingExchange) GetOrder(context.Context, order.Ref) (order.Snapshot, error) {
+	return order.Snapshot{}, f.err
+}
+
+func TestDecoratorsForwardTrading(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeTradingExchange{fakeExchange: fakeExchange{id: "bybit"}}
+	decorated := Decorate(fake, 100, 100)
+
+	placer, ok := decorated.(ports.OrderPlacer)
+	if !ok {
+		t.Fatal("decorated exchange must expose ports.OrderPlacer")
+	}
+	ack, err := placer.PlaceOrder(context.Background(), order.Request{ClientOrderID: "cid-1"})
+	if err != nil || ack.Ref.ClientOrderID != "cid-1" || fake.placeCalls != 1 {
+		t.Fatalf("PlaceOrder = %+v, %v, calls=%d", ack, err, fake.placeCalls)
+	}
+	if err := placer.CancelOrder(context.Background(), order.Ref{}); err != nil {
+		t.Fatalf("CancelOrder: %v", err)
+	}
+	if _, err := placer.OpenOrders(context.Background()); err != nil {
+		t.Fatalf("OpenOrders: %v", err)
+	}
+	if _, err := placer.GetOrder(context.Background(), order.Ref{}); err != nil {
+		t.Fatalf("GetOrder: %v", err)
+	}
+}
+
+func TestDecoratorsRejectNonTradingAdapter(t *testing.T) {
+	t.Parallel()
+
+	decorated := Decorate(&fakeExchange{id: "bybit"}, 100, 100)
+	placer, ok := decorated.(ports.OrderPlacer)
+	if !ok {
+		t.Fatal("decorated exchange must expose ports.OrderPlacer")
+	}
+	if _, err := placer.PlaceOrder(context.Background(), order.Request{}); !errors.Is(err, ports.ErrTradingUnsupported) {
+		t.Fatalf("PlaceOrder err = %v, want ErrTradingUnsupported", err)
+	}
+	if _, err := placer.OpenOrders(context.Background()); !errors.Is(err, ports.ErrTradingUnsupported) {
+		t.Fatalf("OpenOrders err = %v, want ErrTradingUnsupported", err)
 	}
 }
