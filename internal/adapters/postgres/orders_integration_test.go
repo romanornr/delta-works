@@ -171,6 +171,24 @@ func TestOrderStoreApplyEvent(t *testing.T) {
 		}
 	})
 
+	t.Run("cancel intent keeps first timestamp", func(t *testing.T) {
+		req := newPendingOrder(ctx, t, store)
+		first := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
+		if err := store.MarkCancelRequested(ctx, req.ClientOrderID, first); err != nil {
+			t.Fatalf("MarkCancelRequested: %v", err)
+		}
+		if err := store.MarkCancelRequested(ctx, req.ClientOrderID, first.Add(time.Hour)); err != nil {
+			t.Fatalf("MarkCancelRequested repeat: %v", err)
+		}
+		got, err := store.GetOrder(ctx, req.ClientOrderID)
+		if err != nil || !got.CancelRequestedAt.Equal(first) {
+			t.Fatalf("CancelRequestedAt = %v, err=%v; want %v", got.CancelRequestedAt, err, first)
+		}
+		if err := store.MarkCancelRequested(ctx, "absent", first); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("unknown order err = %v, want ErrNotFound", err)
+		}
+	})
+
 	t.Run("unknown order", func(t *testing.T) {
 		ev := fillEvent(order.Request{ClientOrderID: order.ClientOrderID(id.New()), Instrument: testInstrument()}, order.StatusOpen, "0", "0")
 		if _, err := store.ApplyEvent(ctx, order.SourceStream, ev); !errors.Is(err, ports.ErrNotFound) {

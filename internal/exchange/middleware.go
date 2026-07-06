@@ -15,6 +15,7 @@ import (
 	"github.com/romanornr/delta-works/internal/domain/account"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	"github.com/romanornr/delta-works/internal/domain/marketdata"
+	"github.com/romanornr/delta-works/internal/domain/order"
 	"github.com/romanornr/delta-works/internal/ports"
 )
 
@@ -93,4 +94,98 @@ func (b *broken) Balances(ctx context.Context, acct account.Type) ([]account.Bal
 		return nil, err
 	}
 	return v.([]account.Balance), nil
+}
+
+// Trading forwarding. The decorators pass order calls through the same
+// limiter and breaker as the read path: a failing venue is failing as a
+// venue. Adapters that cannot trade surface ports.ErrTradingUnsupported at
+// call time.
+
+func (r *rateLimited) PlaceOrder(ctx context.Context, req order.Request) (order.Ack, error) {
+	op, ok := r.ex.(ports.OrderPlacer)
+	if !ok {
+		return order.Ack{}, fmt.Errorf("%w: %s", ports.ErrTradingUnsupported, r.ex.ID())
+	}
+	if err := r.lim.Wait(ctx); err != nil {
+		return order.Ack{}, fmt.Errorf("%w: %w", errLimiterWait, err)
+	}
+	return op.PlaceOrder(ctx, req)
+}
+
+func (r *rateLimited) CancelOrder(ctx context.Context, ref order.Ref) error {
+	op, ok := r.ex.(ports.OrderPlacer)
+	if !ok {
+		return fmt.Errorf("%w: %s", ports.ErrTradingUnsupported, r.ex.ID())
+	}
+	if err := r.lim.Wait(ctx); err != nil {
+		return fmt.Errorf("%w: %w", errLimiterWait, err)
+	}
+	return op.CancelOrder(ctx, ref)
+}
+
+func (r *rateLimited) OpenOrders(ctx context.Context) ([]order.Snapshot, error) {
+	op, ok := r.ex.(ports.OrderPlacer)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ports.ErrTradingUnsupported, r.ex.ID())
+	}
+	if err := r.lim.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("%w: %w", errLimiterWait, err)
+	}
+	return op.OpenOrders(ctx)
+}
+
+func (r *rateLimited) GetOrder(ctx context.Context, ref order.Ref) (order.Snapshot, error) {
+	op, ok := r.ex.(ports.OrderPlacer)
+	if !ok {
+		return order.Snapshot{}, fmt.Errorf("%w: %s", ports.ErrTradingUnsupported, r.ex.ID())
+	}
+	if err := r.lim.Wait(ctx); err != nil {
+		return order.Snapshot{}, fmt.Errorf("%w: %w", errLimiterWait, err)
+	}
+	return op.GetOrder(ctx, ref)
+}
+
+func (b *broken) PlaceOrder(ctx context.Context, req order.Request) (order.Ack, error) {
+	op, ok := b.ex.(ports.OrderPlacer)
+	if !ok {
+		return order.Ack{}, fmt.Errorf("%w: %s", ports.ErrTradingUnsupported, b.ex.ID())
+	}
+	v, err := b.cb.Execute(func() (any, error) { return op.PlaceOrder(ctx, req) })
+	if err != nil {
+		return order.Ack{}, err
+	}
+	return v.(order.Ack), nil
+}
+
+func (b *broken) CancelOrder(ctx context.Context, ref order.Ref) error {
+	op, ok := b.ex.(ports.OrderPlacer)
+	if !ok {
+		return fmt.Errorf("%w: %s", ports.ErrTradingUnsupported, b.ex.ID())
+	}
+	_, err := b.cb.Execute(func() (any, error) { return nil, op.CancelOrder(ctx, ref) })
+	return err
+}
+
+func (b *broken) OpenOrders(ctx context.Context) ([]order.Snapshot, error) {
+	op, ok := b.ex.(ports.OrderPlacer)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ports.ErrTradingUnsupported, b.ex.ID())
+	}
+	v, err := b.cb.Execute(func() (any, error) { return op.OpenOrders(ctx) })
+	if err != nil {
+		return nil, err
+	}
+	return v.([]order.Snapshot), nil
+}
+
+func (b *broken) GetOrder(ctx context.Context, ref order.Ref) (order.Snapshot, error) {
+	op, ok := b.ex.(ports.OrderPlacer)
+	if !ok {
+		return order.Snapshot{}, fmt.Errorf("%w: %s", ports.ErrTradingUnsupported, b.ex.ID())
+	}
+	v, err := b.cb.Execute(func() (any, error) { return op.GetOrder(ctx, ref) })
+	if err != nil {
+		return order.Snapshot{}, err
+	}
+	return v.(order.Snapshot), nil
 }
