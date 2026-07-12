@@ -16,14 +16,15 @@ const EnvPrefix = "DELTA__"
 
 // Config is the root application configuration.
 type Config struct {
-	Log      Log              `koanf:"log"`
-	HTTP     HTTP             `koanf:"http"`
-	API      API              `koanf:"api"`
-	Postgres Postgres         `koanf:"postgres"`
-	QuestDB  QuestDB          `koanf:"questdb"`
-	Snapshot Snapshot         `koanf:"snapshot"`
-	Outbox   Outbox           `koanf:"outbox"`
-	Venues   map[string]Venue `koanf:"venues"`
+	Log       Log              `koanf:"log"`
+	HTTP      HTTP             `koanf:"http"`
+	API       API              `koanf:"api"`
+	Postgres  Postgres         `koanf:"postgres"`
+	QuestDB   QuestDB          `koanf:"questdb"`
+	Snapshot  Snapshot         `koanf:"snapshot"`
+	Outbox    Outbox           `koanf:"outbox"`
+	Reconcile Reconcile        `koanf:"reconcile"`
+	Venues    map[string]Venue `koanf:"venues"`
 }
 
 // Log configures logging output.
@@ -64,6 +65,11 @@ type Snapshot struct {
 type Outbox struct {
 	Interval time.Duration `koanf:"interval"`
 	Batch    int           `koanf:"batch"`
+}
+
+// Reconcile configures the venue-vs-local reconciliation loop.
+type Reconcile struct {
+	Interval time.Duration `koanf:"interval"`
 }
 
 // Venue configures one exchange connection. Each credential is either a
@@ -110,6 +116,9 @@ func (c Config) Validate() error {
 	}
 	if c.Outbox.Batch <= 0 || c.Outbox.Batch > 1000 {
 		errs = append(errs, fmt.Errorf("outbox.batch %d: must be between 1 and 1000", c.Outbox.Batch))
+	}
+	if c.Reconcile.Interval < 5*time.Second || c.Reconcile.Interval > 5*time.Minute {
+		errs = append(errs, fmt.Errorf("reconcile.interval %s: must be between 5s and 5m", c.Reconcile.Interval))
 	}
 	if c.Postgres.DSN == "" {
 		errs = append(errs, errors.New("postgres.dsn: must not be empty"))

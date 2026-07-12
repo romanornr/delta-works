@@ -103,6 +103,7 @@ func TestBreakerIgnoresNonVenueErrors(t *testing.T) {
 		{"nil", nil, true},
 		{"auth", ports.ErrAuth, true},
 		{"unsupported account", ports.ErrUnsupportedAccount, true},
+		{"order not found", ports.ErrNotFound, true},
 		{"caller canceled", context.Canceled, true},
 		{"limiter wait timeout", errLimiterWait, true},
 		{"venue failure", errors.New("venue down"), false},

@@ -99,6 +99,30 @@ func TestOrderStoreApplyEvent(t *testing.T) {
 		}
 	})
 
+	t.Run("dropped event adopts venue order ID once", func(t *testing.T) {
+		req := newPendingOrder(ctx, t, store)
+		ev := fillEvent(req, order.StatusPending, "0", "0")
+		ev.Ref.VenueOrderID = "v-1"
+		decision, err := store.ApplyEvent(ctx, order.SourceReconcile, ev)
+		if err != nil || decision.Drop != order.DropDuplicate || decision.Transition {
+			t.Fatalf("first apply: decision=%+v err=%v", decision, err)
+		}
+		got, err := store.GetOrder(ctx, req.ClientOrderID)
+		if err != nil || got.VenueOrderID != "v-1" {
+			t.Fatalf("GetOrder = %+v, err=%v; want venue order ID v-1", got, err)
+		}
+
+		ev.Ref.VenueOrderID = "v-2"
+		decision, err = store.ApplyEvent(ctx, order.SourceReconcile, ev)
+		if err != nil || decision.Drop != order.DropDuplicate || decision.Transition {
+			t.Fatalf("second apply: decision=%+v err=%v", decision, err)
+		}
+		got, err = store.GetOrder(ctx, req.ClientOrderID)
+		if err != nil || got.VenueOrderID != "v-1" {
+			t.Fatalf("GetOrder = %+v, err=%v; venue order ID must stay v-1", got, err)
+		}
+	})
+
 	t.Run("out of order convergence", func(t *testing.T) {
 		req := newPendingOrder(ctx, t, store)
 		if _, err := store.ApplyEvent(ctx, order.SourceStream, fillEvent(req, order.StatusFilled, "1", "50000")); err != nil {
@@ -195,6 +219,68 @@ func TestOrderStoreApplyEvent(t *testing.T) {
 			t.Fatalf("ApplyEvent unknown order: err=%v, want ErrNotFound", err)
 		}
 	})
+}
+
+func TestOrderStoreListActiveOrders(t *testing.T) {
+	ctx := context.Background()
+	pool, err := Connect(ctx, startPostgres(t))
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer pool.Close()
+	store := NewOrderStore(pool)
+
+	create := func(venue instrument.VenueID) order.Request {
+		t.Helper()
+		req := order.Request{
+			ClientOrderID: order.ClientOrderID(id.New()), BotID: "manual",
+			Instrument: testInstrument(), Side: order.Buy, Type: order.Limit,
+			Price: decimal.RequireFromString("50000"), Qty: decimal.RequireFromString("1"),
+		}
+		req.Instrument.Venue = venue
+		if err := store.CreatePending(ctx, req); err != nil {
+			t.Fatalf("CreatePending: %v", err)
+		}
+		return req
+	}
+
+	pending := create("bybit")
+	open := create("bybit")
+	partial := create("bybit")
+	filled := create("bybit")
+	otherVenue := create("kraken")
+	for _, event := range []order.Event{
+		fillEvent(open, order.StatusOpen, "0", "0"),
+		fillEvent(partial, order.StatusPartiallyFilled, "0.4", "50000"),
+		fillEvent(filled, order.StatusFilled, "1", "50000"),
+		fillEvent(otherVenue, order.StatusOpen, "0", "0"),
+	} {
+		if _, err := store.ApplyEvent(ctx, order.SourceStream, event); err != nil {
+			t.Fatalf("ApplyEvent: %v", err)
+		}
+	}
+
+	got, err := store.ListActiveOrders(ctx, "bybit")
+	if err != nil {
+		t.Fatalf("ListActiveOrders: %v", err)
+	}
+	want := map[order.ClientOrderID]order.Status{
+		pending.ClientOrderID: order.StatusPending,
+		open.ClientOrderID:    order.StatusOpen,
+		partial.ClientOrderID: order.StatusPartiallyFilled,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("ListActiveOrders returned %d orders, want %d: %+v", len(got), len(want), got)
+	}
+	for _, stored := range got {
+		if stored.Instrument.Venue != "bybit" || want[stored.ClientOrderID] != stored.Status {
+			t.Fatalf("unexpected active order: %+v", stored)
+		}
+		delete(want, stored.ClientOrderID)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing active orders: %v", want)
+	}
 }
 
 func TestOutboxRoundTrip(t *testing.T) {

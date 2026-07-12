@@ -88,6 +88,9 @@ type OrderStore interface {
 	ApplyEvent(ctx context.Context, source order.Source, ev order.Event) (order.Decision, error)
 	// GetOrder returns the stored order, or ErrNotFound.
 	GetOrder(ctx context.Context, id order.ClientOrderID) (StoredOrder, error)
+	// ListActiveOrders returns every non-terminal order (pending, open,
+	// partially_filled) for one venue.
+	ListActiveOrders(ctx context.Context, venue instrument.VenueID) ([]StoredOrder, error)
 	// MarkCancelRequested stamps the cancel intent once; later calls keep
 	// the first timestamp. Returns ErrNotFound for unknown orders.
 	MarkCancelRequested(ctx context.Context, id order.ClientOrderID, at time.Time) error
