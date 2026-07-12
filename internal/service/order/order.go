@@ -198,7 +198,7 @@ func (s *Service) apply(ctx context.Context, source domain.Source, ev domain.Eve
 		ev.At = s.clk.Now()
 	}
 	venue := ev.Ref.Instrument.Venue
-	decision, err := s.store.ApplyEvent(ctx, source, ev)
+	decision, note, err := s.store.ApplyEvent(ctx, source, ev)
 	switch {
 	case errors.Is(err, ports.ErrNotFound):
 		s.metrics.observeDropped(venue, "unknown_order")
@@ -212,6 +212,16 @@ func (s *Service) apply(ctx context.Context, source domain.Source, ev domain.Eve
 			return nil
 		}
 		return fmt.Errorf("order store: %w", err)
+	}
+	if note.UnmatchedQty.IsPositive() {
+		s.metrics.observeUnmatched(venue)
+	}
+	if note.FillConflict {
+		s.metrics.observeDropped(venue, "fill_id_conflict")
+		s.log.Warn().Str("venue", string(venue)).
+			Str("client_order_id", string(ev.Ref.ClientOrderID)).
+			Str("venue_fill_id", ev.VenueFillID).
+			Msg("cumulative fill advanced under an already-recorded venue fill ID; ledger did not post the delta")
 	}
 	if decision.Drop != "" && !decision.Transition && !decision.FillDelta.IsPositive() {
 		s.metrics.observeDropped(venue, string(decision.Drop))

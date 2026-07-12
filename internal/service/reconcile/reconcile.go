@@ -328,7 +328,7 @@ func (s *Service) apply(ctx context.Context, snap domain.Snapshot, reason string
 	if ev.At.IsZero() {
 		ev.At = s.clk.Now()
 	}
-	decision, err := s.store.ApplyEvent(ctx, domain.SourceReconcile, ev)
+	decision, note, err := s.store.ApplyEvent(ctx, domain.SourceReconcile, ev)
 	switch {
 	case errors.Is(err, ports.ErrNotFound):
 		s.log.Warn().Str("venue", string(ev.Ref.Instrument.Venue)).
@@ -342,6 +342,16 @@ func (s *Service) apply(ctx context.Context, snap domain.Snapshot, reason string
 		// A reconciliation-discovered fill regression is a diff in its own
 		// right; stream-path anomalies are counted by the order service.
 		s.metrics.observeDiff(ev.Ref.Instrument.Venue, "fill_anomaly")
+	}
+	if note.UnmatchedQty.IsPositive() {
+		// Same split as fill anomalies: an oversell first seen by
+		// reconciliation is a reconciliation diff.
+		s.metrics.observeDiff(ev.Ref.Instrument.Venue, "unmatched_sell")
+	}
+	if note.FillConflict {
+		s.log.Warn().Str("venue", string(ev.Ref.Instrument.Venue)).
+			Str("client_order_id", string(ev.Ref.ClientOrderID)).
+			Msg("cumulative fill advanced under an already-recorded venue fill ID; ledger did not post the delta")
 	}
 	if decision.Drop != "" {
 		s.log.Debug().Str("venue", string(ev.Ref.Instrument.Venue)).

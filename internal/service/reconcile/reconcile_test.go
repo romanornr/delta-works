@@ -74,23 +74,24 @@ type appliedEvent struct {
 }
 
 type fakeStore struct {
-	mu       sync.Mutex
-	active   []ports.StoredOrder
-	listErr  error
-	stored   ports.StoredOrder
-	getErr   error
-	applyErr error
-	decision domain.Decision
-	applied  []appliedEvent
+	mu         sync.Mutex
+	active     []ports.StoredOrder
+	listErr    error
+	stored     ports.StoredOrder
+	getErr     error
+	applyErr   error
+	decision   domain.Decision
+	ledgerNote ports.LedgerNote
+	applied    []appliedEvent
 }
 
 func (*fakeStore) CreatePending(context.Context, domain.Request) error { return nil }
 
-func (f *fakeStore) ApplyEvent(_ context.Context, source domain.Source, event domain.Event) (domain.Decision, error) {
+func (f *fakeStore) ApplyEvent(_ context.Context, source domain.Source, event domain.Event) (domain.Decision, ports.LedgerNote, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.applied = append(f.applied, appliedEvent{source: source, event: event})
-	return f.decision, f.applyErr
+	return f.decision, f.ledgerNote, f.applyErr
 }
 
 func (f *fakeStore) GetOrder(context.Context, domain.ClientOrderID) (ports.StoredOrder, error) {
@@ -508,5 +509,20 @@ func TestFillAnomalyCountsAsDiff(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(metrics.diffs.WithLabelValues("bybit", "fill_anomaly")); got != 1 {
 		t.Fatalf("diffs{fill_anomaly} = %v, want 1", got)
+	}
+}
+
+func TestReconcileNoteCounting(t *testing.T) {
+	placer := &fakePlacer{openOrders: []domain.Snapshot{testSnapshot(domain.StatusPartiallyFilled, "0.9")}}
+	store := &fakeStore{
+		active:     []ports.StoredOrder{testStored(domain.StatusPartiallyFilled, time.Minute)},
+		ledgerNote: ports.LedgerNote{UnmatchedQty: decimal.RequireFromString("0.1")},
+	}
+	service, _, metrics, _ := newTestService(t, placer, store)
+	if err := service.pass(context.Background(), service.venues[0]); err != nil {
+		t.Fatalf("pass: %v", err)
+	}
+	if got := testutil.ToFloat64(metrics.diffs.WithLabelValues("bybit", "unmatched_sell")); got != 1 {
+		t.Fatalf("diffs{unmatched_sell} = %v, want 1", got)
 	}
 }

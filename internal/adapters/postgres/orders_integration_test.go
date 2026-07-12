@@ -80,11 +80,11 @@ func TestOrderStoreApplyEvent(t *testing.T) {
 		}
 
 		ev := fillEvent(req, order.StatusOpen, "0", "0")
-		d, err := store.ApplyEvent(ctx, order.SourceAck, ev)
+		d, _, err := store.ApplyEvent(ctx, order.SourceAck, ev)
 		if err != nil || !d.Transition {
 			t.Fatalf("first apply: decision=%+v err=%v", d, err)
 		}
-		d, err = store.ApplyEvent(ctx, order.SourceStream, ev)
+		d, _, err = store.ApplyEvent(ctx, order.SourceStream, ev)
 		if err != nil || d.Transition || d.Drop != order.DropDuplicate {
 			t.Fatalf("replay: decision=%+v err=%v", d, err)
 		}
@@ -103,7 +103,7 @@ func TestOrderStoreApplyEvent(t *testing.T) {
 		req := newPendingOrder(ctx, t, store)
 		ev := fillEvent(req, order.StatusPending, "0", "0")
 		ev.Ref.VenueOrderID = "v-1"
-		decision, err := store.ApplyEvent(ctx, order.SourceReconcile, ev)
+		decision, _, err := store.ApplyEvent(ctx, order.SourceReconcile, ev)
 		if err != nil || decision.Drop != order.DropDuplicate || decision.Transition {
 			t.Fatalf("first apply: decision=%+v err=%v", decision, err)
 		}
@@ -113,7 +113,7 @@ func TestOrderStoreApplyEvent(t *testing.T) {
 		}
 
 		ev.Ref.VenueOrderID = "v-2"
-		decision, err = store.ApplyEvent(ctx, order.SourceReconcile, ev)
+		decision, _, err = store.ApplyEvent(ctx, order.SourceReconcile, ev)
 		if err != nil || decision.Drop != order.DropDuplicate || decision.Transition {
 			t.Fatalf("second apply: decision=%+v err=%v", decision, err)
 		}
@@ -125,10 +125,10 @@ func TestOrderStoreApplyEvent(t *testing.T) {
 
 	t.Run("out of order convergence", func(t *testing.T) {
 		req := newPendingOrder(ctx, t, store)
-		if _, err := store.ApplyEvent(ctx, order.SourceStream, fillEvent(req, order.StatusFilled, "1", "50000")); err != nil {
+		if _, _, err := store.ApplyEvent(ctx, order.SourceStream, fillEvent(req, order.StatusFilled, "1", "50000")); err != nil {
 			t.Fatalf("filled event: %v", err)
 		}
-		d, err := store.ApplyEvent(ctx, order.SourceStream, fillEvent(req, order.StatusPartiallyFilled, "0.4", "50000"))
+		d, _, err := store.ApplyEvent(ctx, order.SourceStream, fillEvent(req, order.StatusPartiallyFilled, "0.4", "50000"))
 		if err != nil || d.Drop != order.DropTerminal || !d.FillDelta.IsZero() {
 			t.Fatalf("stale partial after filled: decision=%+v err=%v", d, err)
 		}
@@ -147,15 +147,15 @@ func TestOrderStoreApplyEvent(t *testing.T) {
 		req := newPendingOrder(ctx, t, store)
 		partial := fillEvent(req, order.StatusPartiallyFilled, "0.4", "50000")
 		partial.VenueFillID = "f-1"
-		if _, err := store.ApplyEvent(ctx, order.SourceStream, partial); err != nil {
+		if _, _, err := store.ApplyEvent(ctx, order.SourceStream, partial); err != nil {
 			t.Fatalf("partial: %v", err)
 		}
-		if _, err := store.ApplyEvent(ctx, order.SourceStream, partial); err != nil {
+		if _, _, err := store.ApplyEvent(ctx, order.SourceStream, partial); err != nil {
 			t.Fatalf("partial replay: %v", err)
 		}
 		final := fillEvent(req, order.StatusFilled, "1", "51000")
 		final.VenueFillID = "f-2"
-		if _, err := store.ApplyEvent(ctx, order.SourceStream, final); err != nil {
+		if _, _, err := store.ApplyEvent(ctx, order.SourceStream, final); err != nil {
 			t.Fatalf("final: %v", err)
 		}
 
@@ -176,11 +176,11 @@ func TestOrderStoreApplyEvent(t *testing.T) {
 	t.Run("unpriced fill does not skew average", func(t *testing.T) {
 		req := newPendingOrder(ctx, t, store)
 		unpriced := fillEvent(req, order.StatusPartiallyFilled, "0.5", "0")
-		if _, err := store.ApplyEvent(ctx, order.SourceReconcile, unpriced); err != nil {
+		if _, _, err := store.ApplyEvent(ctx, order.SourceReconcile, unpriced); err != nil {
 			t.Fatalf("unpriced: %v", err)
 		}
 		priced := fillEvent(req, order.StatusFilled, "1", "50000")
-		if _, err := store.ApplyEvent(ctx, order.SourceStream, priced); err != nil {
+		if _, _, err := store.ApplyEvent(ctx, order.SourceStream, priced); err != nil {
 			t.Fatalf("priced: %v", err)
 		}
 
@@ -215,7 +215,7 @@ func TestOrderStoreApplyEvent(t *testing.T) {
 
 	t.Run("unknown order", func(t *testing.T) {
 		ev := fillEvent(order.Request{ClientOrderID: order.ClientOrderID(id.New()), Instrument: testInstrument()}, order.StatusOpen, "0", "0")
-		if _, err := store.ApplyEvent(ctx, order.SourceStream, ev); !errors.Is(err, ports.ErrNotFound) {
+		if _, _, err := store.ApplyEvent(ctx, order.SourceStream, ev); !errors.Is(err, ports.ErrNotFound) {
 			t.Fatalf("ApplyEvent unknown order: err=%v, want ErrNotFound", err)
 		}
 	})
@@ -255,7 +255,7 @@ func TestOrderStoreListActiveOrders(t *testing.T) {
 		fillEvent(filled, order.StatusFilled, "1", "50000"),
 		fillEvent(otherVenue, order.StatusOpen, "0", "0"),
 	} {
-		if _, err := store.ApplyEvent(ctx, order.SourceStream, event); err != nil {
+		if _, _, err := store.ApplyEvent(ctx, order.SourceStream, event); err != nil {
 			t.Fatalf("ApplyEvent: %v", err)
 		}
 	}
@@ -294,10 +294,10 @@ func TestOutboxRoundTrip(t *testing.T) {
 	outbox := NewOutboxStore(pool)
 
 	req := newPendingOrder(ctx, t, orders)
-	if _, err := orders.ApplyEvent(ctx, order.SourceAck, fillEvent(req, order.StatusOpen, "0", "0")); err != nil {
+	if _, _, err := orders.ApplyEvent(ctx, order.SourceAck, fillEvent(req, order.StatusOpen, "0", "0")); err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	if _, err := orders.ApplyEvent(ctx, order.SourceStream, fillEvent(req, order.StatusFilled, "1", "50000")); err != nil {
+	if _, _, err := orders.ApplyEvent(ctx, order.SourceStream, fillEvent(req, order.StatusFilled, "1", "50000")); err != nil {
 		t.Fatalf("filled: %v", err)
 	}
 
@@ -343,7 +343,7 @@ func TestOutboxPublishErrorKeepsRows(t *testing.T) {
 	outbox := NewOutboxStore(pool)
 
 	req := newPendingOrder(ctx, t, orders)
-	if _, err := orders.ApplyEvent(ctx, order.SourceAck, fillEvent(req, order.StatusOpen, "0", "0")); err != nil {
+	if _, _, err := orders.ApplyEvent(ctx, order.SourceAck, fillEvent(req, order.StatusOpen, "0", "0")); err != nil {
 		t.Fatalf("open: %v", err)
 	}
 

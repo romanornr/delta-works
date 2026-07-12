@@ -24,6 +24,30 @@ type Fill struct {
 	OccurredAt    time.Time
 }
 
+type Lot struct {
+	ID             string
+	BotID          string
+	Venue          string
+	Base           string
+	Quote          string
+	Qty            decimal.Decimal
+	RemainingQty   decimal.Decimal
+	CostPrice      decimal.Decimal
+	OpenedByFillID int64
+	Status         string
+	OpenedAt       time.Time
+	ClosedAt       pgtype.Timestamptz
+}
+
+type LotClosure struct {
+	ID         int64
+	LotID      string
+	SellFillID int64
+	Qty        decimal.Decimal
+	Price      decimal.Decimal
+	ClosedAt   time.Time
+}
+
 type Order struct {
 	ClientOrderID     string
 	Venue             string
@@ -75,4 +99,14 @@ type SnapshotCheckpoint struct {
 	Status       string
 	Error        string
 	CreatedAt    time.Time
+}
+
+type UnmatchedSell struct {
+	SellFillID int64
+	BotID      string
+	Venue      string
+	Base       string
+	Quote      string
+	Qty        decimal.Decimal
+	OccurredAt time.Time
 }
