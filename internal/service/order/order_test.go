@@ -84,6 +84,7 @@ type fakeStore struct {
 	getErr      error
 	applyErr    error
 	decision    domain.Decision
+	ledgerNote  ports.LedgerNote
 	appliedCh   chan struct{}
 }
 
@@ -94,14 +95,14 @@ func (f *fakeStore) CreatePending(_ context.Context, req domain.Request) error {
 	return nil
 }
 
-func (f *fakeStore) ApplyEvent(_ context.Context, source domain.Source, ev domain.Event) (domain.Decision, error) {
+func (f *fakeStore) ApplyEvent(_ context.Context, source domain.Source, ev domain.Event) (domain.Decision, ports.LedgerNote, error) {
 	f.mu.Lock()
 	f.applied = append(f.applied, appliedEvent{source: source, ev: ev})
 	f.mu.Unlock()
 	if f.appliedCh != nil {
 		f.appliedCh <- struct{}{}
 	}
-	return f.decision, f.applyErr
+	return f.decision, f.ledgerNote, f.applyErr
 }
 
 func (f *fakeStore) GetOrder(context.Context, domain.ClientOrderID) (ports.StoredOrder, error) {
@@ -363,6 +364,15 @@ func TestApplyCountsDrops(t *testing.T) {
 		t.Fatalf("dropped{negative_fill_delta} = %v, want 1", got)
 	}
 
+	store.decision = domain.Decision{}
+	store.ledgerNote = ports.LedgerNote{UnmatchedQty: decimal.RequireFromString("0.25")}
+	if err := svc.apply(context.Background(), domain.SourceStream, streamEvent(domain.StatusPartiallyFilled)); err != nil {
+		t.Fatalf("apply unmatched sell: %v", err)
+	}
+	if got := testutil.ToFloat64(m.unmatched.WithLabelValues("bybit")); got != 1 {
+		t.Fatalf("ledger_unmatched_sells_total = %v, want 1", got)
+	}
+
 	store.applyErr = ports.ErrNotFound
 	if err := svc.apply(context.Background(), domain.SourceStream, streamEvent(domain.StatusOpen)); err != nil {
 		t.Fatalf("apply unknown order: %v", err)
@@ -374,5 +384,19 @@ func TestApplyCountsDrops(t *testing.T) {
 	store.applyErr = errors.New("postgres down")
 	if err := svc.apply(context.Background(), domain.SourceStream, streamEvent(domain.StatusOpen)); err == nil {
 		t.Fatal("store failure must propagate")
+	}
+}
+
+func TestFillConflictCountedAndLogged(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{ledgerNote: ports.LedgerNote{FillConflict: true}}
+	svc, _, m := newService(t, &fakePlacer{}, store, nil)
+	store.decision = domain.Decision{Transition: true, To: domain.StatusPartiallyFilled, FillDelta: decimal.RequireFromString("0.1")}
+	if err := svc.apply(context.Background(), domain.SourceStream, streamEvent(domain.StatusPartiallyFilled)); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if got := testutil.ToFloat64(m.dropped.WithLabelValues("bybit", "fill_id_conflict")); got != 1 {
+		t.Fatalf("dropped{fill_id_conflict} = %v, want 1", got)
 	}
 }

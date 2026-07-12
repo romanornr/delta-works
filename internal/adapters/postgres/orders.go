@@ -15,6 +15,7 @@ import (
 
 	"github.com/romanornr/delta-works/internal/adapters/postgres/sqlcgen"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
+	"github.com/romanornr/delta-works/internal/domain/ledger"
 	"github.com/romanornr/delta-works/internal/domain/money"
 	"github.com/romanornr/delta-works/internal/domain/order"
 	"github.com/romanornr/delta-works/internal/ports"
@@ -24,15 +25,16 @@ import (
 // single write path for venue events: transition row, fill row and outbox
 // rows commit atomically (docs/specs/m2-oms.md, ADR-0008).
 type OrderStore struct {
-	pool *pgxpool.Pool
-	q    *sqlcgen.Queries
+	pool     *pgxpool.Pool
+	q        *sqlcgen.Queries
+	selector ledger.LotSelector
 }
 
 var _ ports.OrderStore = (*OrderStore)(nil)
 
 // NewOrderStore returns an OrderStore backed by pool.
 func NewOrderStore(pool *pgxpool.Pool) *OrderStore {
-	return &OrderStore{pool: pool, q: sqlcgen.New(pool)}
+	return &OrderStore{pool: pool, q: sqlcgen.New(pool), selector: ledger.FIFO{}}
 }
 
 // CreatePending inserts the pending row before the venue submit.
@@ -60,60 +62,64 @@ func (s *OrderStore) CreatePending(ctx context.Context, req order.Request) error
 // ApplyEvent locks the order row, decides via the domain state machine,
 // and persists whatever the decision carries. Dropped state events write
 // nothing unless they supply a missing venue order ID.
-func (s *OrderStore) ApplyEvent(ctx context.Context, source order.Source, ev order.Event) (order.Decision, error) {
+func (s *OrderStore) ApplyEvent(ctx context.Context, source order.Source, ev order.Event) (order.Decision, ports.LedgerNote, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return order.Decision{}, fmt.Errorf("postgres: begin apply event: %w", err)
+		return order.Decision{}, ports.LedgerNote{}, fmt.Errorf("postgres: begin apply event: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	q := s.q.WithTx(tx)
 	row, err := q.GetOrderForUpdate(ctx, string(ev.Ref.ClientOrderID))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return order.Decision{}, ports.ErrNotFound
+		return order.Decision{}, ports.LedgerNote{}, ports.ErrNotFound
 	}
 	if err != nil {
-		return order.Decision{}, fmt.Errorf("postgres: lock order: %w", err)
+		return order.Decision{}, ports.LedgerNote{}, fmt.Errorf("postgres: lock order: %w", err)
 	}
 
 	decision, err := order.Transition(order.State{Status: order.Status(row.Status), FilledQty: row.FilledQty}, ev)
 	if err != nil {
-		return order.Decision{}, err
+		return order.Decision{}, ports.LedgerNote{}, err
 	}
 	if !decision.Transition && !decision.FillDelta.IsPositive() {
 		// A venue order ID is an identity fact even when the state event drops.
-		if err := adoptVenueOrderID(ctx, tx, q, row, ev.Ref.VenueOrderID); err != nil {
-			return order.Decision{}, err
+		adopted, err := adoptVenueOrderID(ctx, q, row, ev.Ref.VenueOrderID)
+		if err != nil {
+			return order.Decision{}, ports.LedgerNote{}, err
 		}
-		return decision, nil
+		if adopted {
+			if err := tx.Commit(ctx); err != nil {
+				return order.Decision{}, ports.LedgerNote{}, fmt.Errorf("postgres: commit apply event: %w", err)
+			}
+		}
+		return decision, ports.LedgerNote{}, nil
 	}
 
-	if err := s.persistDecision(ctx, q, row, source, ev, decision); err != nil {
-		return order.Decision{}, err
+	note, err := s.persistDecision(ctx, q, row, source, ev, decision)
+	if err != nil {
+		return order.Decision{}, ports.LedgerNote{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return order.Decision{}, fmt.Errorf("postgres: commit apply event: %w", err)
+		return order.Decision{}, ports.LedgerNote{}, fmt.Errorf("postgres: commit apply event: %w", err)
 	}
-	return decision, nil
+	return decision, note, nil
 }
 
-func adoptVenueOrderID(ctx context.Context, tx pgx.Tx, q *sqlcgen.Queries, row sqlcgen.Order, venueOrderID string) error {
+func adoptVenueOrderID(ctx context.Context, q *sqlcgen.Queries, row sqlcgen.Order, venueOrderID string) (bool, error) {
 	if row.VenueOrderID != nil || venueOrderID == "" {
-		return nil
+		return false, nil
 	}
 	if _, err := q.AdoptVenueOrderID(ctx, sqlcgen.AdoptVenueOrderIDParams{
 		ClientOrderID: row.ClientOrderID,
 		VenueOrderID:  nullString(venueOrderID),
 	}); err != nil {
-		return fmt.Errorf("postgres: adopt venue order ID: %w", err)
+		return false, fmt.Errorf("postgres: adopt venue order ID: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("postgres: commit apply event: %w", err)
-	}
-	return nil
+	return true, nil
 }
 
-func (s *OrderStore) persistDecision(ctx context.Context, q *sqlcgen.Queries, row sqlcgen.Order, source order.Source, ev order.Event, decision order.Decision) error {
+func (s *OrderStore) persistDecision(ctx context.Context, q *sqlcgen.Queries, row sqlcgen.Order, source order.Source, ev order.Event, decision order.Decision) (ports.LedgerNote, error) {
 	newFilled := row.FilledQty.Add(decision.FillDelta)
 	tr, err := q.InsertTransition(ctx, sqlcgen.InsertTransitionParams{
 		ClientOrderID: row.ClientOrderID,
@@ -125,13 +131,12 @@ func (s *OrderStore) persistDecision(ctx context.Context, q *sqlcgen.Queries, ro
 		OccurredAt:    ev.At.UTC(),
 	})
 	if err != nil {
-		return fmt.Errorf("postgres: insert transition: %w", err)
+		return ports.LedgerNote{}, fmt.Errorf("postgres: insert transition: %w", err)
 	}
 
+	var note ports.LedgerNote
 	if decision.FillDelta.IsPositive() {
-		// A conflict on venue_fill_id means this exact fill is already
-		// recorded; the cumulative update below still applies venue truth.
-		if _, err := q.InsertFill(ctx, sqlcgen.InsertFillParams{
+		fillID, err := q.InsertFill(ctx, sqlcgen.InsertFillParams{
 			ClientOrderID: row.ClientOrderID,
 			TransitionID:  tr.ID,
 			Qty:           decision.FillDelta,
@@ -140,8 +145,20 @@ func (s *OrderStore) persistDecision(ctx context.Context, q *sqlcgen.Queries, ro
 			FeeCurrency:   nullString(string(ev.FeeCurrency)),
 			VenueFillID:   nullString(ev.VenueFillID),
 			OccurredAt:    ev.At.UTC(),
-		}); err != nil {
-			return fmt.Errorf("postgres: insert fill: %w", err)
+		})
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			// The venue fill ID is already recorded. Order truth still
+			// advances with the cumulative, but the ledger cannot post a
+			// second time against the same fill; the caller surfaces it.
+			note.FillConflict = true
+		case err != nil:
+			return ports.LedgerNote{}, fmt.Errorf("postgres: insert fill: %w", err)
+		default:
+			note, err = s.postLedgerFill(ctx, q, row, ev, decision.FillDelta, fillID)
+			if err != nil {
+				return ports.LedgerNote{}, err
+			}
 		}
 	}
 
@@ -153,10 +170,13 @@ func (s *OrderStore) persistDecision(ctx context.Context, q *sqlcgen.Queries, ro
 		VenueOrderID:  nullString(ev.Ref.VenueOrderID),
 		Reason:        nullString(ev.Reason),
 	}); err != nil {
-		return fmt.Errorf("postgres: update order: %w", err)
+		return ports.LedgerNote{}, fmt.Errorf("postgres: update order: %w", err)
 	}
 
-	return s.insertEventOutbox(ctx, q, row, source, ev, decision, newFilled)
+	if err := s.insertEventOutbox(ctx, q, row, source, ev, decision, newFilled); err != nil {
+		return ports.LedgerNote{}, err
+	}
+	return note, nil
 }
 
 func (s *OrderStore) insertEventOutbox(ctx context.Context, q *sqlcgen.Queries, row sqlcgen.Order, source order.Source, ev order.Event, decision order.Decision, newFilled decimal.Decimal) error {

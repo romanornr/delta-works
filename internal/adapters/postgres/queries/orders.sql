@@ -45,7 +45,8 @@ VALUES (
 )
 RETURNING id, seq;
 
--- name: InsertFill :execrows
+-- name: InsertFill :one
 INSERT INTO fills (client_order_id, transition_id, qty, price, fee, fee_currency, venue_fill_id, occurred_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-ON CONFLICT (client_order_id, venue_fill_id) WHERE venue_fill_id IS NOT NULL DO NOTHING;
+ON CONFLICT (client_order_id, venue_fill_id) WHERE venue_fill_id IS NOT NULL DO NOTHING
+RETURNING id;

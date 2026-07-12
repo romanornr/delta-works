@@ -79,8 +79,12 @@ Per-bot inventory as lots, posted inside the same `ApplyEvent` transaction as th
 
 - Buy fill opens a `Lot` (qty, cost price from the fill).
 - Sell fill closes lots chosen by the `LotSelector` port; M2 ships FIFO. M3's grid pairing is just another selector — the seam is the point.
-- Oversell (sell fill exceeds open lot qty): close what matches, record the unmatched remainder on the closure, publish `ledger.unmatched_sell` and count it. Never hard-fail — a venue-reported fill is a fact; M3 reservations prevent oversell upfront. Unmatched remainders are not retro-matched when later buy fills arrive; they stay recorded for operator attention.
+- Oversell (sell fill exceeds open lot qty): close what matches, record the unmatched remainder in `unmatched_sells`, publish `ledger.unmatched_sell` and count it. Never hard-fail — a venue-reported fill is a fact; M3 reservations prevent oversell upfront. Unmatched remainders are not retro-matched when later buy fills arrive; they stay recorded for operator attention.
 - `Request` carries `BotID` from day one; RPC-placed orders use the reserved `bot_id` `manual`.
+
+Ledger posting is serialized with a transaction-scoped advisory lock per `(bot_id, venue, base, quote)` inventory key. Matching order is the serial order in which `ApplyEvent` acquires this lock; FIFO applies by `(opened_at, id)` among lots already posted. Event-time FIFO under arbitrary cross-order arrival is not promised because it cannot coexist with no retro-matching.
+
+M2 lot cost basis is execution-price-only: fees are recorded on fills but not allocated to lots in M2; fee-aware inventory and PnL are deferred — a known, intentional accuracy limitation. Adapter code enforces the cross-table invariant: lots open only from buy fills, and closures and unmatched rows come only from sell fills of the same bot and instrument.
 
 ### Outbox
 
@@ -98,8 +102,9 @@ Migrations `0002_orders`, `0003_outbox`, `0004_ledger` (goose, embedded, brand-n
 - `order_transitions`: identity PK, client_order_id FK, seq with `UNIQUE(client_order_id, seq)`, from_status, to_status, cumulative filled_qty, source `CHECK (source IN ('local','stream','ack','reconcile'))`, reason, occurred_at, recorded_at.
 - `fills`: identity PK, client_order_id + transition FKs, qty (delta), price, fee, fee_currency, venue_fill_id (partial unique), occurred_at.
 - `outbox`: identity PK, subject, payload jsonb, created_at, published_at NULL; partial index on unpublished rows.
-- `lots`: ULID text PK, bot_id, venue, base, quote, qty, remaining_qty, cost_price, opened_by_fill_id FK, status, opened_at, closed_at.
-- `lot_closures`: identity PK, lot_id FK, sell_fill_id FK, qty, price, closed_at, `UNIQUE(lot_id, sell_fill_id)`.
+- `lots`: ULID text PK, bot_id, venue, base, quote, qty, remaining_qty, cost_price, opened_by_fill_id bigint unique FK, status, opened_at, closed_at.
+- `lot_closures`: identity PK, lot_id text FK, sell_fill_id bigint FK, qty, price, closed_at, `UNIQUE(lot_id, sell_fill_id)`.
+- `unmatched_sells`: sell_fill_id bigint PK/FK, bot_id, venue, base, quote, qty, occurred_at.
 - QuestDB gains a `fills` series (sym: venue, symbol, side, bot; dbl: qty, price, fee) — analytics only, ADR-0004.
 
 ## Control plane

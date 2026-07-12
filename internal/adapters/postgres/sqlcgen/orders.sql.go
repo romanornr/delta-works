@@ -125,10 +125,11 @@ func (q *Queries) GetOrderForUpdate(ctx context.Context, clientOrderID string) (
 	return i, err
 }
 
-const insertFill = `-- name: InsertFill :execrows
+const insertFill = `-- name: InsertFill :one
 INSERT INTO fills (client_order_id, transition_id, qty, price, fee, fee_currency, venue_fill_id, occurred_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (client_order_id, venue_fill_id) WHERE venue_fill_id IS NOT NULL DO NOTHING
+RETURNING id
 `
 
 type InsertFillParams struct {
@@ -143,7 +144,7 @@ type InsertFillParams struct {
 }
 
 func (q *Queries) InsertFill(ctx context.Context, arg InsertFillParams) (int64, error) {
-	result, err := q.db.Exec(ctx, insertFill,
+	row := q.db.QueryRow(ctx, insertFill,
 		arg.ClientOrderID,
 		arg.TransitionID,
 		arg.Qty,
@@ -153,10 +154,9 @@ func (q *Queries) InsertFill(ctx context.Context, arg InsertFillParams) (int64, 
 		arg.VenueFillID,
 		arg.OccurredAt,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertPendingOrder = `-- name: InsertPendingOrder :execrows

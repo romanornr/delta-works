@@ -75,6 +75,17 @@ type StoredOrder struct {
 	UpdatedAt         time.Time
 }
 
+// LedgerNote reports what a fill posted, for observability only; ledger
+// truth lives in Postgres.
+type LedgerNote struct {
+	OpenedLotID  string          // non-empty when a buy fill opened a lot
+	UnmatchedQty decimal.Decimal // positive when a sell fill oversold
+	// FillConflict reports contradictory venue data: the event advanced the
+	// cumulative fill under a venue fill ID that is already recorded, so
+	// order state moved but the ledger could not post the delta.
+	FillConflict bool
+}
+
 // OrderStore persists order state per the M2 state machine
 // (docs/specs/m2-oms.md). Every write goes through a transaction that
 // also inserts the matching outbox rows (ADR-0008).
@@ -85,7 +96,7 @@ type OrderStore interface {
 	// ApplyEvent applies a venue event: transition row, fill row and
 	// outbox rows in one transaction. Idempotent and order-independent.
 	// Returns ErrNotFound when the order is unknown.
-	ApplyEvent(ctx context.Context, source order.Source, ev order.Event) (order.Decision, error)
+	ApplyEvent(ctx context.Context, source order.Source, ev order.Event) (order.Decision, LedgerNote, error)
 	// GetOrder returns the stored order, or ErrNotFound.
 	GetOrder(ctx context.Context, id order.ClientOrderID) (StoredOrder, error)
 	// ListActiveOrders returns every non-terminal order (pending, open,
