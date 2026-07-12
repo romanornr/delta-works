@@ -44,20 +44,21 @@ type DropReason string
 // Drop reasons. Events dropped with a zero FillDelta contributed nothing
 // and are counted in order_events_dropped_total by the caller.
 const (
-	DropStale        DropReason = "stale"
-	DropDuplicate    DropReason = "duplicate"
-	DropTerminal     DropReason = "terminal"
-	DropNegativeFill DropReason = "negative_fill_delta"
+	DropStale     DropReason = "stale"
+	DropDuplicate DropReason = "duplicate"
+	DropTerminal  DropReason = "terminal"
 )
 
 // Decision is what applying an event to a stored order should do. A
 // decision can carry a fill without a status transition: execution facts
-// are extracted even when the status itself is stale.
+// are extracted even when the status itself is stale. A rank-advancing
+// status can also apply while its regressed fill claim is rejected.
 type Decision struct {
-	Transition bool            // record a transition row and set the status to To
-	To         Status          // resulting status; equals the stored status unless Transition
-	FillDelta  decimal.Decimal // positive: record a fill of this quantity
-	Drop       DropReason      // set when the status change was not applied
+	Transition  bool            // record a transition row and set the status to To
+	To          Status          // resulting status; equals the stored status unless Transition
+	FillDelta   decimal.Decimal // positive: record a fill of this quantity
+	FillAnomaly bool            // a rank-advancing event carried a regressed cumulative fill; the status applied, the fill claim was rejected
+	Drop        DropReason      // set when the status change was not applied
 }
 
 // Transition decides how a venue event applies to the stored state. It is
@@ -87,15 +88,18 @@ func Transition(current State, ev Event) (Decision, error) {
 	switch {
 	case curRank == terminalRank:
 		return Decision{To: current.Status, FillDelta: fill, Drop: DropTerminal}, nil
+	case delta.IsNegative() && evRank <= curRank:
+		// A fill regression from a same- or lower-rank event is ordinary
+		// out-of-order traffic. Never un-fill.
+		return Decision{To: current.Status, Drop: DropStale}, nil
+	case delta.IsNegative():
+		// Venue state still advances while its regressed fill claim is
+		// rejected and counted by the caller.
+		return Decision{Transition: true, To: ev.Status, FillAnomaly: true}, nil
 	case evRank < curRank:
 		// Rank-regressing events are ordinary out-of-order traffic; a
 		// lower cumulative there is expected, not an anomaly.
 		return Decision{To: current.Status, FillDelta: fill, Drop: DropStale}, nil
-	case delta.IsNegative():
-		// A shrinking cumulative fill from a same-or-higher-rank event is
-		// a venue anomaly. Never un-fill; the caller counts it and
-		// publishes an anomaly event.
-		return Decision{To: current.Status, Drop: DropNegativeFill}, nil
 	case evRank > curRank:
 		return Decision{Transition: true, To: ev.Status, FillDelta: fill}, nil
 	default:

@@ -338,6 +338,11 @@ func (s *Service) apply(ctx context.Context, snap domain.Snapshot, reason string
 	case err != nil:
 		return fmt.Errorf("reconcile store: apply event: %w", err)
 	}
+	if decision.FillAnomaly {
+		// A reconciliation-discovered fill regression is a diff in its own
+		// right; stream-path anomalies are counted by the order service.
+		s.metrics.observeDiff(ev.Ref.Instrument.Venue, "fill_anomaly")
+	}
 	if decision.Drop != "" {
 		s.log.Debug().Str("venue", string(ev.Ref.Instrument.Venue)).
 			Str("client_order_id", string(ev.Ref.ClientOrderID)).

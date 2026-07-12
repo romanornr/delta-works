@@ -355,6 +355,14 @@ func TestApplyCountsDrops(t *testing.T) {
 		t.Fatalf("dropped{duplicate} = %v, want 1", got)
 	}
 
+	store.decision = domain.Decision{Transition: true, To: domain.StatusFilled, FillAnomaly: true}
+	if err := svc.apply(context.Background(), domain.SourceStream, streamEvent(domain.StatusFilled)); err != nil {
+		t.Fatalf("apply fill anomaly: %v", err)
+	}
+	if got := testutil.ToFloat64(m.dropped.WithLabelValues("bybit", "negative_fill_delta")); got != 1 {
+		t.Fatalf("dropped{negative_fill_delta} = %v, want 1", got)
+	}
+
 	store.applyErr = ports.ErrNotFound
 	if err := svc.apply(context.Background(), domain.SourceStream, streamEvent(domain.StatusOpen)); err != nil {
 		t.Fatalf("apply unknown order: %v", err)
