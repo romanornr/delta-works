@@ -40,8 +40,8 @@ func NewOrderStore(pool *pgxpool.Pool) *OrderStore {
 // CreatePending inserts the pending row before the venue submit.
 // Re-inserting the same ClientOrderID is a no-op, so submit retries with
 // the same ULID are safe.
-func (s *OrderStore) CreatePending(ctx context.Context, req order.Request) error {
-	_, err := s.q.InsertPendingOrder(ctx, sqlcgen.InsertPendingOrderParams{
+func (s *OrderStore) CreatePending(ctx context.Context, req order.Request) (bool, error) {
+	n, err := s.q.InsertPendingOrder(ctx, sqlcgen.InsertPendingOrderParams{
 		ClientOrderID: string(req.ClientOrderID),
 		Venue:         string(req.Instrument.Venue),
 		Base:          string(req.Instrument.Base),
@@ -54,9 +54,9 @@ func (s *OrderStore) CreatePending(ctx context.Context, req order.Request) error
 		BotID:         req.BotID,
 	})
 	if err != nil {
-		return fmt.Errorf("postgres: create pending order: %w", err)
+		return false, fmt.Errorf("postgres: create pending order: %w", err)
 	}
-	return nil
+	return n == 1, nil
 }
 
 // ApplyEvent locks the order row, decides via the domain state machine,
@@ -185,6 +185,8 @@ func (s *OrderStore) insertEventOutbox(ctx context.Context, q *sqlcgen.Queries, 
 	if err := insertOutboxJSON(ctx, q, order.SubjectUpdated, order.UpdatedPayload{
 		ClientOrderID: id,
 		Venue:         venue,
+		Base:          money.Currency(row.Base),
+		Quote:         money.Currency(row.Quote),
 		Status:        decision.To,
 		FilledQty:     newFilled,
 		Source:        source,
@@ -198,6 +200,10 @@ func (s *OrderStore) insertEventOutbox(ctx context.Context, q *sqlcgen.Queries, 
 	return insertOutboxJSON(ctx, q, order.SubjectFilled, order.FilledPayload{
 		ClientOrderID: id,
 		Venue:         venue,
+		Base:          money.Currency(row.Base),
+		Quote:         money.Currency(row.Quote),
+		Status:        decision.To,
+		FilledQty:     newFilled,
 		Qty:           decision.FillDelta,
 		Price:         ev.FillPrice,
 		Fee:           ev.Fee,
@@ -268,6 +274,31 @@ func (s *OrderStore) ListActiveOrders(ctx context.Context, venue instrument.Venu
 	rows, err := s.q.ListActiveOrders(ctx, string(venue))
 	if err != nil {
 		return nil, fmt.Errorf("postgres: list active orders: %w", err)
+	}
+	orders := make([]ports.StoredOrder, 0, len(rows))
+	for _, row := range rows {
+		orders = append(orders, storedOrder(row))
+	}
+	return orders, nil
+}
+
+// ListOrders returns a keyset-paginated order page.
+func (s *OrderStore) ListOrders(ctx context.Context, filter ports.OrderFilter) ([]ports.StoredOrder, error) {
+	statuses := filter.Statuses
+	if len(statuses) == 0 {
+		statuses = nil
+	}
+	var cursorCreatedAt pgtype.Timestamptz
+	if filter.CursorCreatedAt != nil {
+		cursorCreatedAt = pgtype.Timestamptz{Time: filter.CursorCreatedAt.UTC(), Valid: true}
+	}
+	rows, err := s.q.ListOrders(ctx, sqlcgen.ListOrdersParams{
+		Venue: filter.Venue, Statuses: statuses, BotID: filter.BotID,
+		CursorCreatedAt: cursorCreatedAt, CursorID: filter.CursorID,
+		RowLimit: int64(filter.Limit) + 1,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list orders: %w", err)
 	}
 	orders := make([]ports.StoredOrder, 0, len(rows))
 	for _, row := range rows {

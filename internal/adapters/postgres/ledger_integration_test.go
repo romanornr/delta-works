@@ -32,7 +32,7 @@ func newLedgerOrder(
 		Instrument: testInstrument(), Side: side, Type: order.Limit,
 		Price: decimal.RequireFromString("50000"), Qty: decimal.RequireFromString(qty),
 	}
-	if err := store.CreatePending(ctx, req); err != nil {
+	if _, err := store.CreatePending(ctx, req); err != nil {
 		t.Fatalf("CreatePending: %v", err)
 	}
 	return req

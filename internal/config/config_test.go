@@ -55,6 +55,7 @@ venues:
 		{"default survives", cfg.HTTP.Addr, ":8080"},
 		{"duration parsed", cfg.Snapshot.Interval, 30 * time.Second},
 		{"reconcile default", cfg.Reconcile.Interval, 30 * time.Second},
+		{"order submit budget default", cfg.Order.SubmitBudget, 10 * time.Second},
 		{"env secret nested", cfg.Venues["bybit"].APIKey, "k123"},
 		{"venue rate", cfg.Venues["bybit"].Rate.RPS, 5.0},
 	}
@@ -169,6 +170,11 @@ func TestValidateRejectsBadValues(t *testing.T) {
 		{"outbox batch out of range", func(c *Config) { c.Outbox.Batch = 0 }},
 		{"reconcile interval too short", func(c *Config) { c.Reconcile.Interval = time.Second }},
 		{"reconcile interval too long", func(c *Config) { c.Reconcile.Interval = 10 * time.Minute }},
+		{"order submit budget too short", func(c *Config) { c.Order.SubmitBudget = time.Millisecond }},
+		{"order submit budget too long", func(c *Config) { c.Order.SubmitBudget = 2 * time.Minute }},
+		{"trading venue disabled", func(c *Config) {
+			c.Venues = map[string]Venue{"x": {Trading: true}}
+		}},
 		{"enabled venue without accounts", func(c *Config) {
 			c.Venues = map[string]Venue{"x": {Enabled: true, Rate: Rate{RPS: 1, Burst: 1}}}
 		}},
@@ -200,6 +206,7 @@ func TestValidateRejectsBadValues(t *testing.T) {
 				Snapshot:  Snapshot{Interval: time.Minute},
 				Outbox:    Outbox{Interval: 500 * time.Millisecond, Batch: 100},
 				Reconcile: Reconcile{Interval: 30 * time.Second},
+				Order:     Order{SubmitBudget: 10 * time.Second},
 			}
 			tt.mutate(&cfg)
 			if err := cfg.Validate(); err == nil {

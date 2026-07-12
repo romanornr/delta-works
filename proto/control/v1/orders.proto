@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+package control.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+service OrderService {
+  rpc PlaceOrder(PlaceOrderRequest) returns (PlaceOrderResponse) {}
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse) {}
+  rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse) {}
+}
+
+enum Side {
+  SIDE_UNSPECIFIED = 0;
+  SIDE_BUY = 1;
+  SIDE_SELL = 2;
+}
+
+enum OrderType {
+  ORDER_TYPE_UNSPECIFIED = 0;
+  ORDER_TYPE_LIMIT = 1;
+  ORDER_TYPE_MARKET = 2;
+}
+
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  ORDER_STATUS_PENDING = 1;
+  ORDER_STATUS_OPEN = 2;
+  ORDER_STATUS_PARTIALLY_FILLED = 3;
+  ORDER_STATUS_FILLED = 4;
+  ORDER_STATUS_CANCELED = 5;
+  ORDER_STATUS_REJECTED = 6;
+  ORDER_STATUS_EXPIRED = 7;
+}
+
+message PlaceOrderRequest {
+  option (buf.validate.message).cel = {
+    id: "place_order.base_quote"
+    message: "base and quote must differ"
+    expression: "this.base != this.quote"
+  };
+  option (buf.validate.message).cel = {
+    id: "place_order.price"
+    message: "limit orders require a positive decimal price and market orders require an empty price"
+    expression: "this.type == 1 ? this.price.matches(r'^(?:[1-9][0-9]*(?:\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)$') : (this.type == 2 && this.price == '')"
+  };
+
+  string venue = 1 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+  string base = 2 [(buf.validate.field).string = {min_len: 1, max_len: 16}];
+  string quote = 3 [(buf.validate.field).string = {min_len: 1, max_len: 16}];
+  Side side = 4 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  OrderType type = 5 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  string qty = 6 [(buf.validate.field).string = {
+    min_len: 1,
+    max_len: 64,
+    pattern: "^(?:[1-9][0-9]*(?:\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)$"
+  }];
+  string price = 7 [(buf.validate.field).string.max_len = 64];
+  string client_order_id = 8 [(buf.validate.field).string = {
+    max_len: 26,
+    pattern: "^(?:|[0-9A-HJKMNP-TV-Z]{26})$"
+  }];
+}
+
+message PlaceOrderResponse {
+  string client_order_id = 1;
+  OrderStatus status = 2;
+  bool submit_unsettled = 3;
+}
+
+message CancelOrderRequest {
+  string client_order_id = 1 [(buf.validate.field).string = {
+    len: 26,
+    pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+  }];
+}
+
+message CancelOrderResponse {
+  OrderStatus status = 1;
+}
+
+message ListOrdersRequest {
+  string venue = 1 [(buf.validate.field).string.max_len = 64];
+  repeated OrderStatus statuses = 2 [(buf.validate.field).repeated.items.enum = {defined_only: true, not_in: [0]}];
+  string bot_id = 3 [(buf.validate.field).string.max_len = 128];
+  int32 limit = 4 [(buf.validate.field).int32 = {gte: 0, lte: 500}];
+  string page_token = 5 [(buf.validate.field).string.max_len = 2048];
+}
+
+message ListOrdersResponse {
+  repeated Order orders = 1;
+  string next_page_token = 2;
+}
+
+message Order {
+  string client_order_id = 1;
+  string venue_order_id = 2;
+  string venue = 3;
+  string base = 4;
+  string quote = 5;
+  Side side = 6;
+  OrderType type = 7;
+  string price = 8;
+  string qty = 9;
+  string filled_qty = 10;
+  string avg_fill_price = 11;
+  OrderStatus status = 12;
+  string bot_id = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+}

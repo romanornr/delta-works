@@ -11,6 +11,21 @@ SELECT * FROM orders
 WHERE venue = $1 AND status IN ('pending', 'open', 'partially_filled')
 ORDER BY created_at;
 
+-- name: ListOrders :many
+SELECT * FROM orders
+WHERE (sqlc.narg(venue)::text IS NULL OR venue = sqlc.narg(venue))
+  AND (sqlc.narg(statuses)::text[] IS NULL OR status = ANY(sqlc.narg(statuses)::text[]))
+  AND (sqlc.narg(bot_id)::text IS NULL OR bot_id = sqlc.narg(bot_id))
+  AND (
+    sqlc.narg(cursor_created_at)::timestamptz IS NULL OR
+    (created_at, client_order_id) < (
+      sqlc.narg(cursor_created_at)::timestamptz,
+      sqlc.narg(cursor_id)::text
+    )
+  )
+ORDER BY created_at DESC, client_order_id DESC
+LIMIT sqlc.arg(row_limit)::bigint;
+
 -- name: MarkCancelRequested :execrows
 UPDATE orders
 SET cancel_requested_at = COALESCE(cancel_requested_at, $2),

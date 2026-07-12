@@ -86,13 +86,23 @@ type LedgerNote struct {
 	FillConflict bool
 }
 
+// OrderFilter selects one keyset-paginated order page.
+type OrderFilter struct {
+	Venue           *string
+	Statuses        []string
+	BotID           *string
+	Limit           int32
+	CursorCreatedAt *time.Time
+	CursorID        *string
+}
+
 // OrderStore persists order state per the M2 state machine
 // (docs/specs/m2-oms.md). Every write goes through a transaction that
 // also inserts the matching outbox rows (ADR-0008).
 type OrderStore interface {
 	// CreatePending inserts the order in status pending before the venue
 	// submit. Idempotent: re-inserting the same ClientOrderID is a no-op.
-	CreatePending(ctx context.Context, req order.Request) error
+	CreatePending(ctx context.Context, req order.Request) (bool, error)
 	// ApplyEvent applies a venue event: transition row, fill row and
 	// outbox rows in one transaction. Idempotent and order-independent.
 	// Returns ErrNotFound when the order is unknown.
@@ -102,6 +112,9 @@ type OrderStore interface {
 	// ListActiveOrders returns every non-terminal order (pending, open,
 	// partially_filled) for one venue.
 	ListActiveOrders(ctx context.Context, venue instrument.VenueID) ([]StoredOrder, error)
+	// ListOrders returns at most filter.Limit+1 rows so the caller can
+	// derive a next-page token.
+	ListOrders(ctx context.Context, filter OrderFilter) ([]StoredOrder, error)
 	// MarkCancelRequested stamps the cancel intent once; later calls keep
 	// the first timestamp. Returns ErrNotFound for unknown orders.
 	MarkCancelRequested(ctx context.Context, id order.ClientOrderID, at time.Time) error

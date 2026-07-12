@@ -20,6 +20,8 @@ const (
 type UpdatedPayload struct {
 	ClientOrderID ClientOrderID      `json:"client_order_id"`
 	Venue         instrument.VenueID `json:"venue"`
+	Base          money.Currency     `json:"base"`
+	Quote         money.Currency     `json:"quote"`
 	Status        Status             `json:"status"`
 	FilledQty     decimal.Decimal    `json:"filled_qty"`
 	Source        Source             `json:"source"`
@@ -31,6 +33,10 @@ type UpdatedPayload struct {
 type FilledPayload struct {
 	ClientOrderID ClientOrderID      `json:"client_order_id"`
 	Venue         instrument.VenueID `json:"venue"`
+	Base          money.Currency     `json:"base"`
+	Quote         money.Currency     `json:"quote"`
+	Status        Status             `json:"status"`
+	FilledQty     decimal.Decimal    `json:"filled_qty"`
 	Qty           decimal.Decimal    `json:"qty"`
 	Price         decimal.Decimal    `json:"price"`
 	Fee           decimal.Decimal    `json:"fee"`

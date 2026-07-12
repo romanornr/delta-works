@@ -31,10 +31,24 @@ const SubjectStreamReconnected = "stream.reconnected"
 // only covers the stream being torn down entirely.
 const streamRetryDelay = 30 * time.Second
 
-// ErrSubmitUnsettled reports that the venue submit did not conclusively
-// succeed or fail within the retry budget. The order stays pending;
-// reconciliation adopts it or marks it rejected after the grace window.
-var ErrSubmitUnsettled = errors.New("submit unsettled; order stays pending until reconciliation")
+var (
+	// ErrSubmitUnsettled reports that the venue submit did not conclusively
+	// succeed or fail within the retry budget. The order stays pending;
+	// reconciliation adopts it or marks it rejected after the grace window.
+	ErrSubmitUnsettled = errors.New("submit unsettled; order stays pending until reconciliation")
+	// ErrIdentityMismatch reports reuse of a client order ID with different immutable fields.
+	ErrIdentityMismatch = errors.New("client order ID identity mismatch")
+	// ErrTerminal reports an attempt to cancel an order already in a terminal state.
+	ErrTerminal = errors.New("order is terminal")
+	// ErrVenueNotConfigured reports a request for a venue without trading enabled.
+	ErrVenueNotConfigured = errors.New("venue not configured for trading")
+)
+
+// PlaceResult is the locally persisted state after a placement attempt.
+type PlaceResult struct {
+	ClientOrderID domain.ClientOrderID
+	Status        domain.Status
+}
 
 // Venue is one tradable venue: the resilience-wrapped order surface and
 // its private event stream.
@@ -76,20 +90,13 @@ func New(venues []Venue, store ports.OrderStore, clk clock.Clock, logger log.Log
 // ambiguous failures with the SAME client order ID, and applies the ack.
 // The returned ID is valid even when the error is ErrSubmitUnsettled: the
 // order exists locally and reconciliation settles its fate.
-func (s *Service) Place(ctx context.Context, req domain.Request) (domain.ClientOrderID, error) {
-	venue, ok := s.venues[req.Instrument.Venue]
-	if !ok {
-		return "", fmt.Errorf("order: venue %q not configured for trading", req.Instrument.Venue)
+func (s *Service) Place(ctx context.Context, req domain.Request) (PlaceResult, error) {
+	req, venue, existing, err := s.preparePlace(ctx, req)
+	if err != nil {
+		return PlaceResult{}, err
 	}
-	if req.ClientOrderID == "" {
-		req.ClientOrderID = domain.ClientOrderID(id.New())
-	}
-	if req.BotID == "" {
-		req.BotID = "manual"
-	}
-
-	if err := s.store.CreatePending(ctx, req); err != nil {
-		return "", err
+	if existing != nil {
+		return *existing, nil
 	}
 
 	ack, err := backoff.Retry(ctx, func() (domain.Ack, error) {
@@ -100,47 +107,151 @@ func (s *Service) Place(ctx context.Context, req domain.Request) (domain.ClientO
 		return a, err
 	}, backoff.WithMaxElapsedTime(s.submitBudget))
 	if err != nil {
-		// A duplicate-ID venue error also lands here: GCT gives no way to
-		// classify it, so reconciliation adopting the pending order by
-		// client order ID is the recovery path either way.
-		s.log.Error().Str("venue", string(req.Instrument.Venue)).
-			Str("client_order_id", string(req.ClientOrderID)).Err(err).
-			Msg("submit unsettled after retries")
-		return req.ClientOrderID, fmt.Errorf("%w: %w", ErrSubmitUnsettled, err)
+		return s.submitFailure(ctx, req, err)
 	}
 
 	// The ack carries no cumulative fill quantity, so a zero here is
 	// harmless: fill-bearing events outrank or out-fill it and stale acks
 	// drop by rank (see the state machine's guards).
-	return req.ClientOrderID, s.apply(ctx, domain.SourceAck, domain.Event{
+	if err := s.apply(ctx, domain.SourceAck, domain.Event{
 		Ref:    ack.Ref,
 		Status: ack.Status,
 		At:     ack.AcceptedAt,
-	})
+	}); err != nil {
+		return s.acceptedUnsettled(req, err)
+	}
+	stored, err := s.store.GetOrder(ctx, req.ClientOrderID)
+	if err != nil {
+		return s.acceptedUnsettled(req, err)
+	}
+	return placeResult(stored), nil
+}
+
+// acceptedUnsettled reports a submit the venue accepted whose local state
+// could not be updated or read back. The caller still gets the client
+// order ID: the order is live at the venue and reconciliation converges
+// the local row.
+func (s *Service) acceptedUnsettled(req domain.Request, err error) (PlaceResult, error) {
+	s.log.Error().Str("venue", string(req.Instrument.Venue)).
+		Str("client_order_id", string(req.ClientOrderID)).Err(err).
+		Msg("venue accepted the submit but the local update failed")
+	return PlaceResult{ClientOrderID: req.ClientOrderID, Status: domain.StatusPending},
+		fmt.Errorf("%w: %w", ErrSubmitUnsettled, err)
+}
+
+func (s *Service) preparePlace(ctx context.Context, req domain.Request) (domain.Request, Venue, *PlaceResult, error) {
+	if req.ClientOrderID == "" {
+		req.ClientOrderID = domain.ClientOrderID(id.New())
+	}
+	if req.BotID == "" {
+		req.BotID = "manual"
+	}
+	// A retry for an order that already advanced needs no venue, so the
+	// venue is only required when inserting or resubmitting. That keeps
+	// supplied-ID retries idempotent even after a venue is deconfigured.
+	venue, configured := s.venues[req.Instrument.Venue]
+	if configured {
+		inserted, err := s.store.CreatePending(ctx, req)
+		if err != nil {
+			return req, Venue{}, nil, err
+		}
+		if inserted {
+			return req, venue, nil, nil
+		}
+	}
+	stored, err := s.store.GetOrder(ctx, req.ClientOrderID)
+	if err != nil {
+		if !configured && errors.Is(err, ports.ErrNotFound) {
+			return req, Venue{}, nil, fmt.Errorf("%w: %q", ErrVenueNotConfigured, req.Instrument.Venue)
+		}
+		return req, Venue{}, nil, err
+	}
+	if !sameIdentity(stored, req) {
+		return req, Venue{}, nil, fmt.Errorf("%w: %s", ErrIdentityMismatch, req.ClientOrderID)
+	}
+	if stored.VenueOrderID == "" && stored.Status == domain.StatusPending {
+		if !configured {
+			return req, Venue{}, nil, fmt.Errorf("%w: %q", ErrVenueNotConfigured, req.Instrument.Venue)
+		}
+		return req, venue, nil, nil
+	}
+	result := placeResult(stored)
+	return req, Venue{}, &result, nil
+}
+
+func (s *Service) submitFailure(ctx context.Context, req domain.Request, err error) (PlaceResult, error) {
+	// Recovery reads and writes must survive the caller's context: a
+	// canceled deadline is often exactly why we are here.
+	ctx = context.WithoutCancel(ctx)
+	if errors.Is(err, ports.ErrAuth) || errors.Is(err, ports.ErrTradingUnsupported) {
+		// No venue order can exist, and the same failure blocks the venue
+		// lookups reconciliation would need, so settle the row now.
+		if applyErr := s.apply(ctx, domain.SourceLocal, domain.Event{
+			Ref:    domain.Ref{Instrument: req.Instrument, ClientOrderID: req.ClientOrderID},
+			Status: domain.StatusRejected,
+			Reason: "submit failed: " + err.Error(),
+			At:     s.clk.Now(),
+		}); applyErr != nil {
+			s.log.Error().Str("client_order_id", string(req.ClientOrderID)).
+				Err(applyErr).Msg("could not reject order after permanent submit failure")
+		}
+		return PlaceResult{ClientOrderID: req.ClientOrderID, Status: domain.StatusRejected}, err
+	}
+	// Everything else is ambiguous: the venue may hold the order. That
+	// covers duplicate-ID venue errors (GCT gives no way to classify
+	// them) and context cancellation that raced an in-flight submit.
+	// Reconciliation adopts the pending order by client order ID or
+	// rejects it after the grace window.
+	s.log.Error().Str("venue", string(req.Instrument.Venue)).
+		Str("client_order_id", string(req.ClientOrderID)).Err(err).
+		Msg("submit unsettled after retries")
+	stored, getErr := s.store.GetOrder(ctx, req.ClientOrderID)
+	if getErr != nil {
+		return PlaceResult{ClientOrderID: req.ClientOrderID, Status: domain.StatusPending},
+			fmt.Errorf("%w: %w", ErrSubmitUnsettled, err)
+	}
+	return placeResult(stored), fmt.Errorf("%w: %w", ErrSubmitUnsettled, err)
+}
+
+func sameIdentity(stored ports.StoredOrder, req domain.Request) bool {
+	return stored.ClientOrderID == req.ClientOrderID &&
+		stored.BotID == req.BotID &&
+		stored.Instrument.Venue == req.Instrument.Venue &&
+		stored.Instrument.Base == req.Instrument.Base &&
+		stored.Instrument.Quote == req.Instrument.Quote &&
+		stored.Side == req.Side && stored.Type == req.Type &&
+		stored.Price.Equal(req.Price) && stored.Qty.Equal(req.Qty)
+}
+
+func placeResult(stored ports.StoredOrder) PlaceResult {
+	return PlaceResult{ClientOrderID: stored.ClientOrderID, Status: stored.Status}
 }
 
 // Cancel records the cancel intent and asks the venue. The canceled state
 // itself arrives later like any other venue event.
-func (s *Service) Cancel(ctx context.Context, orderID domain.ClientOrderID) error {
+func (s *Service) Cancel(ctx context.Context, orderID domain.ClientOrderID) (domain.Status, error) {
 	stored, err := s.store.GetOrder(ctx, orderID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if stored.Status.Terminal() {
-		return fmt.Errorf("order: %s is already %s", orderID, stored.Status)
+		return "", fmt.Errorf("%w: %s is already %s", ErrTerminal, orderID, stored.Status)
 	}
 	venue, ok := s.venues[stored.Instrument.Venue]
 	if !ok {
-		return fmt.Errorf("order: venue %q not configured for trading", stored.Instrument.Venue)
+		return "", fmt.Errorf("%w: %q", ErrVenueNotConfigured, stored.Instrument.Venue)
 	}
 	if err := s.store.MarkCancelRequested(ctx, orderID, s.clk.Now()); err != nil {
-		return err
+		return "", err
 	}
-	return venue.Placer.CancelOrder(ctx, domain.Ref{
+	if err := venue.Placer.CancelOrder(ctx, domain.Ref{
 		Instrument:    stored.Instrument,
 		ClientOrderID: stored.ClientOrderID,
 		VenueOrderID:  stored.VenueOrderID,
-	})
+	}); err != nil {
+		return "", err
+	}
+	return stored.Status, nil
 }
 
 // Run consumes every venue's private stream until ctx is canceled. Stream

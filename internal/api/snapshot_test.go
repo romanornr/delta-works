@@ -33,7 +33,9 @@ func (f *fakeCheckpointStore) LastSnapshot(context.Context, account.Ref) (ports.
 
 func newTestClient(t *testing.T, store ports.CheckpointStore) controlv1connect.SnapshotServiceClient {
 	t.Helper()
-	srv := httptest.NewServer(NewServer(NewSnapshotServer(store), NewEventServer(bus.NewInProc())).Handler)
+	eventBus := bus.NewInProc()
+	t.Cleanup(eventBus.Close)
+	srv := httptest.NewServer(NewServer(NewSnapshotServer(store), testEventServer(t, eventBus), nil).Handler)
 	t.Cleanup(srv.Close)
 	return controlv1connect.NewSnapshotServiceClient(srv.Client(), srv.URL)
 }

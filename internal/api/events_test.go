@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -9,17 +11,36 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/shopspring/decimal"
 
 	controlv1 "github.com/romanornr/delta-works/internal/api/gen/control/v1"
 	"github.com/romanornr/delta-works/internal/api/gen/control/v1/controlv1connect"
 	"github.com/romanornr/delta-works/internal/bus"
+	"github.com/romanornr/delta-works/internal/config"
 	"github.com/romanornr/delta-works/internal/domain/account"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	"github.com/romanornr/delta-works/internal/domain/money"
+	domainorder "github.com/romanornr/delta-works/internal/domain/order"
+	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
+	"github.com/romanornr/delta-works/internal/service/reconcile"
 	"github.com/romanornr/delta-works/internal/service/snapshot"
 )
+
+func testEventServer(t *testing.T, eventBus bus.Bus) *EventServer {
+	t.Helper()
+	logger, err := log.New(config.Log{Level: "error", Format: "json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metrics, err := NewMetrics(prometheus.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewEventServer(eventBus, logger, metrics)
+}
 
 func testSnapshot() account.Snapshot {
 	return account.Snapshot{
@@ -58,11 +79,22 @@ func pumpEvents(t *testing.T, b bus.Bus, events []bus.Event) {
 	}()
 }
 
-func TestStreamEvents(t *testing.T) {
-	t.Parallel()
+// newTestServer wires the full control-plane server against a fresh
+// in-proc bus, a checkpoint store with no snapshot, and an order handler
+// whose dependencies are nil: order requests must be settled by the
+// validation interceptor before reaching it.
+func newTestServer(t *testing.T) (*http.Server, bus.Bus) {
+	t.Helper()
 	eventBus := bus.NewInProc()
 	t.Cleanup(eventBus.Close)
-	srv := httptest.NewServer(NewServer(NewSnapshotServer(&fakeCheckpointStore{err: ports.ErrNotFound}), NewEventServer(eventBus)).Handler)
+	server := NewServer(NewSnapshotServer(&fakeCheckpointStore{err: ports.ErrNotFound}), testEventServer(t, eventBus), NewOrderServer(nil, nil))
+	return server, eventBus
+}
+
+func TestStreamEvents(t *testing.T) {
+	t.Parallel()
+	server, eventBus := newTestServer(t)
+	srv := httptest.NewServer(server.Handler)
 	t.Cleanup(srv.Close)
 	client := controlv1connect.NewEventServiceClient(srv.Client(), srv.URL)
 
@@ -115,9 +147,7 @@ func TestStreamEvents(t *testing.T) {
 // which ends open stream handlers.
 func TestShutdownInterruptsStream(t *testing.T) {
 	t.Parallel()
-	eventBus := bus.NewInProc()
-	t.Cleanup(eventBus.Close)
-	srv := NewServer(NewSnapshotServer(&fakeCheckpointStore{err: ports.ErrNotFound}), NewEventServer(eventBus))
+	srv, eventBus := newTestServer(t)
 
 	path := filepath.Join(os.TempDir(), "api-shutdown-test.sock")
 	t.Cleanup(func() { _ = os.Remove(path) })
@@ -148,5 +178,47 @@ func TestShutdownInterruptsStream(t *testing.T) {
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		t.Fatalf("shutdown blocked on open stream: %v", err)
+	}
+}
+
+func TestOrderAndReconcileEventMapping(t *testing.T) {
+	t.Parallel()
+	eventBus := bus.NewInProc()
+	t.Cleanup(eventBus.Close)
+	server := testEventServer(t, eventBus)
+	at := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC)
+	updated, _ := json.Marshal(domainorder.UpdatedPayload{ClientOrderID: "cid", Venue: "bybit", Base: "BTC", Quote: "USDT", Status: domainorder.StatusOpen, FilledQty: decimal.RequireFromString("0.4")})
+	filled, _ := json.Marshal(domainorder.FilledPayload{ClientOrderID: "cid", Venue: "bybit", Base: "BTC", Quote: "USDT", Status: domainorder.StatusPartiallyFilled, FilledQty: decimal.RequireFromString("0.4"), Qty: decimal.RequireFromString("0.4"), Price: decimal.RequireFromString("50000")})
+	tests := []struct {
+		name    string
+		event   bus.Event
+		payload func(*controlv1.Event) bool
+	}{
+		{"updated", bus.Event{Subject: domainorder.SubjectUpdated, At: at, Payload: json.RawMessage(updated)}, func(e *controlv1.Event) bool {
+			return e.GetOrderUpdated().GetFilledQty() == "0.4" && e.GetOrderUpdated().GetBase() == "BTC"
+		}},
+		{"filled", bus.Event{Subject: domainorder.SubjectFilled, At: at, Payload: json.RawMessage(filled)}, func(e *controlv1.Event) bool {
+			return e.GetOrderFilled().GetQty() == "0.4" && e.GetOrderFilled().GetPrice() == "50000"
+		}},
+		{"orphan", bus.Event{Subject: reconcile.SubjectOrphan, At: at, Payload: reconcile.OrphanPayload{Venue: "bybit", VenueOrderID: "v-1", ClientOrderID: "cid", Base: "BTC", Quote: "USDT"}}, func(e *controlv1.Event) bool {
+			return e.GetReconcileDiff().GetKind() == controlv1.ReconcileDiffKind_RECONCILE_DIFF_KIND_ORPHAN
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mapped, ok := server.toProtoEvent(tt.event)
+			if !ok || !tt.payload(mapped.GetEvent()) {
+				t.Fatalf("mapped = %v, ok=%v", mapped, ok)
+			}
+		})
+	}
+	if _, ok := server.toProtoEvent(bus.Event{Subject: domainorder.SubjectUpdated, At: at, Payload: json.RawMessage("{")}); ok {
+		t.Fatal("malformed payload was not skipped")
+	}
+	if mapped, ok := server.toProtoEvent(tests[0].event); !ok || mapped.GetEvent().GetOrderUpdated() == nil {
+		t.Fatal("valid payload after malformed event was not isolated")
+	}
+	if got := testutil.ToFloat64(server.metrics.malformed.WithLabelValues(domainorder.SubjectUpdated)); got != 1 {
+		t.Fatalf("malformed counter = %v, want 1", got)
 	}
 }

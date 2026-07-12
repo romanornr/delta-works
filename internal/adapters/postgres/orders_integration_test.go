@@ -5,6 +5,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -39,7 +40,7 @@ func newPendingOrder(ctx context.Context, t *testing.T, store *OrderStore) order
 		Price:         decimal.RequireFromString("50000"),
 		Qty:           decimal.RequireFromString("1"),
 	}
-	if err := store.CreatePending(ctx, req); err != nil {
+	if _, err := store.CreatePending(ctx, req); err != nil {
 		t.Fatalf("CreatePending: %v", err)
 	}
 	return req
@@ -75,7 +76,7 @@ func TestOrderStoreApplyEvent(t *testing.T) {
 
 	t.Run("idempotent apply", func(t *testing.T) {
 		req := newPendingOrder(ctx, t, store)
-		if err := store.CreatePending(ctx, req); err != nil {
+		if _, err := store.CreatePending(ctx, req); err != nil {
 			t.Fatalf("CreatePending retry: %v", err)
 		}
 
@@ -238,7 +239,7 @@ func TestOrderStoreListActiveOrders(t *testing.T) {
 			Price: decimal.RequireFromString("50000"), Qty: decimal.RequireFromString("1"),
 		}
 		req.Instrument.Venue = venue
-		if err := store.CreatePending(ctx, req); err != nil {
+		if _, err := store.CreatePending(ctx, req); err != nil {
 			t.Fatalf("CreatePending: %v", err)
 		}
 		return req
@@ -280,6 +281,52 @@ func TestOrderStoreListActiveOrders(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing active orders: %v", want)
+	}
+}
+
+func TestOrderStoreListOrders(t *testing.T) {
+	ctx := context.Background()
+	pool, err := Connect(ctx, startPostgres(t))
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer pool.Close()
+	store := NewOrderStore(pool)
+	createdAt := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC)
+	var ids []string
+	for i := 0; i < 4; i++ {
+		req := newPendingOrder(ctx, t, store)
+		ids = append(ids, string(req.ClientOrderID))
+		if _, err := pool.Exec(ctx, "UPDATE orders SET created_at=$1 WHERE client_order_id=$2", createdAt, req.ClientOrderID); err != nil {
+			t.Fatalf("set created_at: %v", err)
+		}
+	}
+	slices.Sort(ids)
+	slices.Reverse(ids)
+	page, err := store.ListOrders(ctx, ports.OrderFilter{Limit: 2})
+	if err != nil {
+		t.Fatalf("first page: %v", err)
+	}
+	if len(page) != 3 || string(page[0].ClientOrderID) != ids[0] || string(page[1].ClientOrderID) != ids[1] {
+		t.Fatalf("first page = %+v, want two emitted rows plus lookahead in descending ID order", page)
+	}
+	cursorID := string(page[1].ClientOrderID)
+	next, err := store.ListOrders(ctx, ports.OrderFilter{Limit: 2, CursorCreatedAt: &createdAt, CursorID: &cursorID})
+	if err != nil {
+		t.Fatalf("second page: %v", err)
+	}
+	if len(next) != 2 || string(next[0].ClientOrderID) != ids[2] || string(next[1].ClientOrderID) != ids[3] {
+		t.Fatalf("second page = %+v, want exact remaining boundary", next)
+	}
+	venue, bot := "bybit", "manual"
+	filtered, err := store.ListOrders(ctx, ports.OrderFilter{Venue: &venue, BotID: &bot, Statuses: []string{string(order.StatusPending)}, Limit: 10})
+	if err != nil || len(filtered) != 4 {
+		t.Fatalf("filters returned %d orders, err=%v; want 4", len(filtered), err)
+	}
+	missing := "kraken"
+	filtered, err = store.ListOrders(ctx, ports.OrderFilter{Venue: &missing, Limit: 10})
+	if err != nil || len(filtered) != 0 {
+		t.Fatalf("missing venue filter returned %d orders, err=%v", len(filtered), err)
 	}
 }
 

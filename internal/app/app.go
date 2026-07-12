@@ -6,6 +6,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"time"
@@ -26,7 +27,9 @@ import (
 	"github.com/romanornr/delta-works/internal/exchange"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
+	orderservice "github.com/romanornr/delta-works/internal/service/order"
 	"github.com/romanornr/delta-works/internal/service/outbox"
+	"github.com/romanornr/delta-works/internal/service/reconcile"
 	"github.com/romanornr/delta-works/internal/service/snapshot"
 	"github.com/romanornr/delta-works/internal/telemetry"
 )
@@ -54,10 +57,11 @@ func New(configPath string, configExplicit bool) *fx.App {
 				},
 				fx.ParamTags("", "", `group:"health"`, ""),
 			),
-			newExchangeRegistry,
+			newExchangeProducts,
 			newPostgres,
 			fx.Annotate(postgres.NewCheckpointStore, fx.As(new(ports.CheckpointStore))),
 			fx.Annotate(postgres.NewOutboxStore, fx.As(new(ports.OutboxStore))),
+			fx.Annotate(postgres.NewOrderStore, fx.As(new(ports.OrderStore))),
 			newQuestDB,
 			fx.Annotate(postgres.NewHealth, fx.As(new(ports.HealthChecker)), fx.ResultTags(`group:"health"`)),
 			fx.Annotate(newQuestDBHealth, fx.As(new(ports.HealthChecker)), fx.ResultTags(`group:"health"`)),
@@ -65,31 +69,82 @@ func New(configPath string, configExplicit bool) *fx.App {
 			newSnapshotService,
 			outbox.NewMetrics,
 			newOutboxService,
+			orderservice.NewMetrics,
+			newOrderService,
+			reconcile.NewMetrics,
+			newReconcileService,
+			api.NewMetrics,
 			api.NewSnapshotServer,
 			api.NewEventServer,
+			api.NewOrderServer,
 		),
-		fx.Invoke(registerBusMetrics, startTelemetryServer, startAPIServer, startSnapshotService, startOutboxService, logStartup),
+		fx.Invoke(registerBusMetrics, startSnapshotService, startTelemetryServer, startOutboxService, startReconcileService, startOrderService, startAPIServer, logStartup),
 	)
 }
 
-// newExchangeRegistry connects every enabled venue through the GCT adapter
+type tradingVenue struct {
+	ID       instrument.VenueID
+	Placer   ports.OrderPlacer
+	Streamer ports.PrivateStreamer
+}
+
+type exchangeProducts struct {
+	fx.Out
+
+	Registry exchange.Registry
+	Trading  []tradingVenue
+}
+
+// newExchangeProducts connects every enabled venue through the GCT adapter
 // and wraps it in the standard resilience stack (rate limit + breaker).
-func newExchangeRegistry(cfg config.Config, l log.Logger) (exchange.Registry, error) {
+func newExchangeProducts(cfg config.Config, l log.Logger, eventBus bus.Bus, clk clock.Clock) (exchangeProducts, error) {
 	logger := log.Component(l, "exchange")
 	ctx, cancel := context.WithTimeout(context.Background(), startupTimeout)
 	defer cancel()
 	var exchanges []ports.Exchange
+	var trading []tradingVenue
 	for _, name := range cfg.EnabledVenues() {
 		venueCfg := cfg.Venues[name]
 		ex, err := gct.New(ctx, name, venueCfg)
 		if err != nil {
-			return nil, err
+			return exchangeProducts{}, err
 		}
-		exchanges = append(exchanges, exchange.Decorate(ex, venueCfg.Rate.RPS, venueCfg.Rate.Burst))
+		decorated := exchange.Decorate(ex, venueCfg.Rate.RPS, venueCfg.Rate.Burst)
+		exchanges = append(exchanges, decorated)
+		if venueCfg.Trading {
+			placer, ok := decorated.(ports.OrderPlacer)
+			if !ok {
+				return exchangeProducts{}, fmt.Errorf("venue %q: decorated exchange does not implement order placement", name)
+			}
+			venueID := instrument.NewVenueID(name)
+			streamer := gct.NewStreamer(ex, func() {
+				_ = eventBus.Publish(context.Background(), bus.Event{
+					Subject: orderservice.SubjectStreamReconnected,
+					At:      clk.Now(), Payload: venueID,
+				})
+			})
+			trading = append(trading, tradingVenue{ID: venueID, Placer: placer, Streamer: streamer})
+		}
 		logger.Info().Str("venue", name).Strs("accounts", venueCfg.Accounts).
 			Bool("authenticated", venueCfg.APIKey != "").Msg("venue connected")
 	}
-	return exchange.NewRegistry(exchanges), nil
+	return exchangeProducts{Registry: exchange.NewRegistry(exchanges), Trading: trading}, nil
+}
+
+func newOrderService(cfg config.Config, venues []tradingVenue, store ports.OrderStore, clk clock.Clock, l log.Logger, m *orderservice.Metrics) *orderservice.Service {
+	converted := make([]orderservice.Venue, 0, len(venues))
+	for _, venue := range venues {
+		converted = append(converted, orderservice.Venue(venue))
+	}
+	return orderservice.New(converted, store, clk, l, cfg.Order.SubmitBudget, m)
+}
+
+func newReconcileService(cfg config.Config, venues []tradingVenue, store ports.OrderStore, eventBus bus.Bus, clk clock.Clock, l log.Logger, m *reconcile.Metrics) *reconcile.Service {
+	converted := make([]reconcile.Venue, 0, len(venues))
+	for _, venue := range venues {
+		converted = append(converted, reconcile.Venue{ID: venue.ID, Placer: venue.Placer})
+	}
+	return reconcile.New(converted, store, eventBus, clk, l, cfg.Reconcile.Interval, m)
 }
 
 func newPostgres(lc fx.Lifecycle, cfg config.Config) (*pgxpool.Pool, error) {
@@ -155,15 +210,41 @@ func startOutboxService(lc fx.Lifecycle, svc *outbox.Service, l log.Logger, shut
 	startService(lc, "outbox", svc.Run, l, shutdowner)
 }
 
+func startReconcileService(lc fx.Lifecycle, venues []tradingVenue, svc *reconcile.Service, l log.Logger, shutdowner fx.Shutdowner) {
+	if len(venues) > 0 {
+		startService(lc, "reconcile", svc.Run, l, shutdowner)
+	}
+}
+
+func startOrderService(lc fx.Lifecycle, venues []tradingVenue, svc *orderservice.Service, reconcileService *reconcile.Service, l log.Logger, shutdowner fx.Shutdowner) {
+	if len(venues) == 0 {
+		return
+	}
+	// Reconciliation is subscribed before private streams start. A stream
+	// that cannot connect stays in its retry loop and does not gate readiness.
+	startServiceAfter(lc, "order", reconcileService.Ready(), svc.Run, l, shutdowner)
+}
+
 // startService ties a background service to the fx lifecycle. A non-nil
 // error from run means infrastructure loss; the process exits non-zero so
 // the supervisor (compose, systemd) restarts it.
 func startService(lc fx.Lifecycle, name string, run func(context.Context) error, l log.Logger, shutdowner fx.Shutdowner) {
+	startServiceAfter(lc, name, nil, run, l, shutdowner)
+}
+
+func startServiceAfter(lc fx.Lifecycle, name string, ready <-chan struct{}, run func(context.Context) error, l log.Logger, shutdowner fx.Shutdowner) {
 	logger := log.Component(l, name)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	lc.Append(fx.Hook{
-		OnStart: func(context.Context) error {
+		OnStart: func(startCtx context.Context) error {
+			if ready != nil {
+				select {
+				case <-ready:
+				case <-startCtx.Done():
+					return startCtx.Err()
+				}
+			}
 			go func() {
 				defer close(done)
 				if err := run(ctx); err != nil && !errors.Is(err, context.Canceled) {
@@ -241,12 +322,12 @@ func startTelemetryServer(lc fx.Lifecycle, srv *http.Server, l log.Logger, shutd
 // configured. The server is built here rather than provided because fx
 // already carries the telemetry *http.Server.
 func startAPIServer(lc fx.Lifecycle, cfg config.Config, snapshots *api.SnapshotServer,
-	events *api.EventServer, l log.Logger, shutdowner fx.Shutdowner,
+	events *api.EventServer, orders *api.OrderServer, l log.Logger, shutdowner fx.Shutdowner,
 ) {
 	if cfg.API.Addr == "" {
 		return
 	}
-	serveHTTP(lc, "api", api.NewServer(snapshots, events), func(ctx context.Context) (net.Listener, error) {
+	serveHTTP(lc, "api", api.NewServer(snapshots, events, orders), func(ctx context.Context) (net.Listener, error) {
 		return api.Listen(ctx, cfg.API.Addr)
 	}, l, shutdowner)
 }
