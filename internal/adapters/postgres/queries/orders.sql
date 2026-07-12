@@ -6,6 +6,11 @@ ON CONFLICT (client_order_id) DO NOTHING;
 -- name: GetOrder :one
 SELECT * FROM orders WHERE client_order_id = $1;
 
+-- name: ListActiveOrders :many
+SELECT * FROM orders
+WHERE venue = $1 AND status IN ('pending', 'open', 'partially_filled')
+ORDER BY created_at;
+
 -- name: MarkCancelRequested :execrows
 UPDATE orders
 SET cancel_requested_at = COALESCE(cancel_requested_at, $2),
@@ -14,6 +19,12 @@ WHERE client_order_id = $1;
 
 -- name: GetOrderForUpdate :one
 SELECT * FROM orders WHERE client_order_id = $1 FOR UPDATE;
+
+-- name: AdoptVenueOrderID :execrows
+UPDATE orders
+SET venue_order_id = $2,
+    updated_at     = now()
+WHERE client_order_id = $1 AND venue_order_id IS NULL;
 
 -- name: ApplyOrderUpdate :exec
 UPDATE orders

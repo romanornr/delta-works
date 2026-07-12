@@ -2,6 +2,7 @@ package gct
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -102,11 +103,14 @@ func (e *Exchange) GetOrder(ctx context.Context, ref order.Ref) (order.Snapshot,
 		return order.Snapshot{}, err
 	}
 	detail, err := e.exch.GetOrderInfo(ctx, ref.VenueOrderID, pair, item)
+	if errors.Is(err, gctorder.ErrOrderNotFound) {
+		return order.Snapshot{}, fmt.Errorf("%w: %s %s: %w", ports.ErrNotFound, e.id, ref.VenueOrderID, err)
+	}
 	if err != nil {
 		return order.Snapshot{}, fmt.Errorf("gct: get order %s %s: %w", e.id, ref.VenueOrderID, classify(err))
 	}
 	if detail == nil {
-		return order.Snapshot{}, fmt.Errorf("gct: get order %s %s: nil detail", e.id, ref.VenueOrderID)
+		return order.Snapshot{}, fmt.Errorf("%w: venue returned no order for %s %s", ports.ErrNotFound, e.id, ref.VenueOrderID)
 	}
 	snap, err := toSnapshot(e.id, detail)
 	if err != nil {

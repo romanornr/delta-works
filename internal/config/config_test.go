@@ -54,6 +54,7 @@ venues:
 		{"env overrides default", cfg.Log.Format, "json"},
 		{"default survives", cfg.HTTP.Addr, ":8080"},
 		{"duration parsed", cfg.Snapshot.Interval, 30 * time.Second},
+		{"reconcile default", cfg.Reconcile.Interval, 30 * time.Second},
 		{"env secret nested", cfg.Venues["bybit"].APIKey, "k123"},
 		{"venue rate", cfg.Venues["bybit"].Rate.RPS, 5.0},
 	}
@@ -166,6 +167,8 @@ func TestValidateRejectsBadValues(t *testing.T) {
 		{"zero interval", func(c *Config) { c.Snapshot.Interval = 0 }},
 		{"outbox interval out of range", func(c *Config) { c.Outbox.Interval = 5 * time.Second }},
 		{"outbox batch out of range", func(c *Config) { c.Outbox.Batch = 0 }},
+		{"reconcile interval too short", func(c *Config) { c.Reconcile.Interval = time.Second }},
+		{"reconcile interval too long", func(c *Config) { c.Reconcile.Interval = 10 * time.Minute }},
 		{"enabled venue without accounts", func(c *Config) {
 			c.Venues = map[string]Venue{"x": {Enabled: true, Rate: Rate{RPS: 1, Burst: 1}}}
 		}},
@@ -190,12 +193,13 @@ func TestValidateRejectsBadValues(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := Config{
-				Log:      Log{Level: "info", Format: "console"},
-				HTTP:     HTTP{Addr: ":8080"},
-				Postgres: Postgres{DSN: "postgres://user:pass@localhost:5432/db"},
-				QuestDB:  QuestDB{Conf: "http::addr=localhost:9000;"},
-				Snapshot: Snapshot{Interval: time.Minute},
-				Outbox:   Outbox{Interval: 500 * time.Millisecond, Batch: 100},
+				Log:       Log{Level: "info", Format: "console"},
+				HTTP:      HTTP{Addr: ":8080"},
+				Postgres:  Postgres{DSN: "postgres://user:pass@localhost:5432/db"},
+				QuestDB:   QuestDB{Conf: "http::addr=localhost:9000;"},
+				Snapshot:  Snapshot{Interval: time.Minute},
+				Outbox:    Outbox{Interval: 500 * time.Millisecond, Batch: 100},
+				Reconcile: Reconcile{Interval: 30 * time.Second},
 			}
 			tt.mutate(&cfg)
 			if err := cfg.Validate(); err == nil {

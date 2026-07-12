@@ -108,6 +108,10 @@ func (f *fakeStore) GetOrder(context.Context, domain.ClientOrderID) (ports.Store
 	return f.stored, f.getErr
 }
 
+func (f *fakeStore) ListActiveOrders(context.Context, instrument.VenueID) ([]ports.StoredOrder, error) {
+	return nil, nil
+}
+
 func (f *fakeStore) MarkCancelRequested(_ context.Context, orderID domain.ClientOrderID, _ time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

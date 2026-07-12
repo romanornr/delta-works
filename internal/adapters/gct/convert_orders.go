@@ -131,12 +131,13 @@ func toSnapshot(venue instrument.VenueID, d *gctorder.Detail) (order.Snapshot, e
 		return order.Snapshot{}, err
 	}
 	return order.Snapshot{
-		Ref:       toRef(venue, d),
-		Status:    status,
-		Price:     decimal.NewFromFloat(d.Price),
-		Qty:       decimal.NewFromFloat(d.Amount),
-		FilledQty: decimal.NewFromFloat(d.ExecutedAmount),
-		UpdatedAt: detailTime(d),
+		Ref:          toRef(venue, d),
+		Status:       status,
+		Price:        decimal.NewFromFloat(d.Price),
+		Qty:          decimal.NewFromFloat(d.Amount),
+		FilledQty:    decimal.NewFromFloat(d.ExecutedAmount),
+		AvgFillPrice: decimal.NewFromFloat(d.AverageExecutedPrice),
+		UpdatedAt:    detailTime(d),
 	}, nil
 }
 

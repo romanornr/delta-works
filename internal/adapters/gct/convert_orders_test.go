@@ -175,6 +175,9 @@ func TestToSnapshot(t *testing.T) {
 	if snap.Status != order.StatusPartiallyFilled || !snap.FilledQty.Equal(decimal.RequireFromString("0.4")) {
 		t.Fatalf("snapshot = %+v", snap)
 	}
+	if !snap.AvgFillPrice.Equal(decimal.NewFromInt(49900)) {
+		t.Fatalf("AvgFillPrice = %s, want 49900", snap.AvgFillPrice)
+	}
 	if snap.Ref.Instrument.VenueSymbol == "" || snap.Ref.Instrument.Venue != "bybit" {
 		t.Fatalf("instrument = %+v", snap.Ref.Instrument)
 	}

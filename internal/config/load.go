@@ -17,12 +17,13 @@ import (
 
 func defaults() map[string]any {
 	return map[string]any{
-		"log.level":         "info",
-		"log.format":        "console",
-		"http.addr":         ":8080",
-		"snapshot.interval": "60s",
-		"outbox.interval":   "500ms",
-		"outbox.batch":      100,
+		"log.level":          "info",
+		"log.format":         "console",
+		"http.addr":          ":8080",
+		"snapshot.interval":  "60s",
+		"outbox.interval":    "500ms",
+		"outbox.batch":       100,
+		"reconcile.interval": "30s",
 	}
 }
 

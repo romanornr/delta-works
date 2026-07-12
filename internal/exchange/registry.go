@@ -61,11 +61,15 @@ func Decorate(ex ports.Exchange, rps float64, burst int) ports.Exchange {
 
 // isBreakerSuccess keeps the breaker focused on venue health. Permanent
 // configuration errors, caller-side cancellation, and local throttling say
-// nothing about the venue, so they must not open a venue-wide circuit.
+// nothing about the venue, so they must not open a venue-wide circuit. A
+// venue positively reporting that an order does not exist is a healthy,
+// well-formed answer, not a venue failure. Reconciliation point lookups
+// encounter this in normal operation.
 func isBreakerSuccess(err error) bool {
 	return err == nil ||
 		errors.Is(err, ports.ErrAuth) ||
 		errors.Is(err, ports.ErrUnsupportedAccount) ||
+		errors.Is(err, ports.ErrNotFound) ||
 		errors.Is(err, context.Canceled) ||
 		errors.Is(err, errLimiterWait)
 }

@@ -78,12 +78,13 @@ type Ack struct {
 
 // Snapshot is a venue's current view of an order.
 type Snapshot struct {
-	Ref       Ref
-	Status    Status
-	Price     decimal.Decimal
-	Qty       decimal.Decimal
-	FilledQty decimal.Decimal
-	UpdatedAt time.Time
+	Ref          Ref
+	Status       Status
+	Price        decimal.Decimal
+	Qty          decimal.Decimal
+	FilledQty    decimal.Decimal
+	AvgFillPrice decimal.Decimal // venue's average fill price; zero when unknown
+	UpdatedAt    time.Time
 }
 
 // Source identifies which path an event reached us through.

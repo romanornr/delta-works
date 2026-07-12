@@ -58,8 +58,8 @@ func (s *OrderStore) CreatePending(ctx context.Context, req order.Request) error
 }
 
 // ApplyEvent locks the order row, decides via the domain state machine,
-// and persists whatever the decision carries. Events that contribute
-// nothing write nothing; the caller counts them from Decision.Drop.
+// and persists whatever the decision carries. Dropped state events write
+// nothing unless they supply a missing venue order ID.
 func (s *OrderStore) ApplyEvent(ctx context.Context, source order.Source, ev order.Event) (order.Decision, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -81,6 +81,10 @@ func (s *OrderStore) ApplyEvent(ctx context.Context, source order.Source, ev ord
 		return order.Decision{}, err
 	}
 	if !decision.Transition && !decision.FillDelta.IsPositive() {
+		// A venue order ID is an identity fact even when the state event drops.
+		if err := adoptVenueOrderID(ctx, tx, q, row, ev.Ref.VenueOrderID); err != nil {
+			return order.Decision{}, err
+		}
 		return decision, nil
 	}
 
@@ -91,6 +95,22 @@ func (s *OrderStore) ApplyEvent(ctx context.Context, source order.Source, ev ord
 		return order.Decision{}, fmt.Errorf("postgres: commit apply event: %w", err)
 	}
 	return decision, nil
+}
+
+func adoptVenueOrderID(ctx context.Context, tx pgx.Tx, q *sqlcgen.Queries, row sqlcgen.Order, venueOrderID string) error {
+	if row.VenueOrderID != nil || venueOrderID == "" {
+		return nil
+	}
+	if _, err := q.AdoptVenueOrderID(ctx, sqlcgen.AdoptVenueOrderIDParams{
+		ClientOrderID: row.ClientOrderID,
+		VenueOrderID:  nullString(venueOrderID),
+	}); err != nil {
+		return fmt.Errorf("postgres: adopt venue order ID: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("postgres: commit apply event: %w", err)
+	}
+	return nil
 }
 
 func (s *OrderStore) persistDecision(ctx context.Context, q *sqlcgen.Queries, row sqlcgen.Order, source order.Source, ev order.Event, decision order.Decision) error {
@@ -221,6 +241,19 @@ func (s *OrderStore) GetOrder(ctx context.Context, id order.ClientOrderID) (port
 		return ports.StoredOrder{}, fmt.Errorf("postgres: get order: %w", err)
 	}
 	return storedOrder(row), nil
+}
+
+// ListActiveOrders returns every non-terminal order for one venue.
+func (s *OrderStore) ListActiveOrders(ctx context.Context, venue instrument.VenueID) ([]ports.StoredOrder, error) {
+	rows, err := s.q.ListActiveOrders(ctx, string(venue))
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list active orders: %w", err)
+	}
+	orders := make([]ports.StoredOrder, 0, len(rows))
+	for _, row := range rows {
+		orders = append(orders, storedOrder(row))
+	}
+	return orders, nil
 }
 
 func storedOrder(row sqlcgen.Order) ports.StoredOrder {

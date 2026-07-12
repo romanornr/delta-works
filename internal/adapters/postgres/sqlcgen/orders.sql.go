@@ -13,6 +13,26 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const adoptVenueOrderID = `-- name: AdoptVenueOrderID :execrows
+UPDATE orders
+SET venue_order_id = $2,
+    updated_at     = now()
+WHERE client_order_id = $1 AND venue_order_id IS NULL
+`
+
+type AdoptVenueOrderIDParams struct {
+	ClientOrderID string
+	VenueOrderID  *string
+}
+
+func (q *Queries) AdoptVenueOrderID(ctx context.Context, arg AdoptVenueOrderIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, adoptVenueOrderID, arg.ClientOrderID, arg.VenueOrderID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const applyOrderUpdate = `-- name: ApplyOrderUpdate :exec
 UPDATE orders
 SET status         = $2,
@@ -215,6 +235,51 @@ func (q *Queries) InsertTransition(ctx context.Context, arg InsertTransitionPara
 	var i InsertTransitionRow
 	err := row.Scan(&i.ID, &i.Seq)
 	return i, err
+}
+
+const listActiveOrders = `-- name: ListActiveOrders :many
+SELECT client_order_id, venue, base, quote, venue_symbol, side, type, price, qty, filled_qty, avg_fill_price, status, venue_order_id, bot_id, cancel_requested_at, reason, created_at, updated_at FROM orders
+WHERE venue = $1 AND status IN ('pending', 'open', 'partially_filled')
+ORDER BY created_at
+`
+
+func (q *Queries) ListActiveOrders(ctx context.Context, venue string) ([]Order, error) {
+	rows, err := q.db.Query(ctx, listActiveOrders, venue)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Order
+	for rows.Next() {
+		var i Order
+		if err := rows.Scan(
+			&i.ClientOrderID,
+			&i.Venue,
+			&i.Base,
+			&i.Quote,
+			&i.VenueSymbol,
+			&i.Side,
+			&i.Type,
+			&i.Price,
+			&i.Qty,
+			&i.FilledQty,
+			&i.AvgFillPrice,
+			&i.Status,
+			&i.VenueOrderID,
+			&i.BotID,
+			&i.CancelRequestedAt,
+			&i.Reason,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const markCancelRequested = `-- name: MarkCancelRequested :execrows
