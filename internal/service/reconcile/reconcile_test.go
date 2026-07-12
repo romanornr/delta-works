@@ -495,3 +495,18 @@ func waitForGauge(t *testing.T, value func() float64, want float64) {
 		}
 	}
 }
+
+func TestFillAnomalyCountsAsDiff(t *testing.T) {
+	placer := &fakePlacer{openOrders: []domain.Snapshot{testSnapshot(domain.StatusCanceled, "0")}}
+	store := &fakeStore{
+		active:   []ports.StoredOrder{testStored(domain.StatusPartiallyFilled, time.Minute)},
+		decision: domain.Decision{Transition: true, To: domain.StatusCanceled, FillAnomaly: true},
+	}
+	service, _, metrics, _ := newTestService(t, placer, store)
+	if err := service.pass(context.Background(), service.venues[0]); err != nil {
+		t.Fatalf("pass: %v", err)
+	}
+	if got := testutil.ToFloat64(metrics.diffs.WithLabelValues("bybit", "fill_anomaly")); got != 1 {
+		t.Fatalf("diffs{fill_anomaly} = %v, want 1", got)
+	}
+}

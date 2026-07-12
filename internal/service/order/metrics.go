@@ -16,7 +16,7 @@ func NewMetrics(reg *prometheus.Registry) (*Metrics, error) {
 	m := &Metrics{
 		dropped: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "order_events_dropped_total",
-			Help: "Venue order events that produced no state change: stale, duplicate, post-terminal, anomalous or for an unknown order.",
+			Help: "Venue order events dropped without effect or carrying a rejected fill claim: stale, duplicate or post-terminal with no new fill, fill regression, or for an unknown order.",
 		}, []string{"venue", "reason"}),
 	}
 	if err := reg.Register(m.dropped); err != nil {

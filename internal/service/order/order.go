@@ -216,5 +216,8 @@ func (s *Service) apply(ctx context.Context, source domain.Source, ev domain.Eve
 	if decision.Drop != "" && !decision.Transition && !decision.FillDelta.IsPositive() {
 		s.metrics.observeDropped(venue, string(decision.Drop))
 	}
+	if decision.FillAnomaly {
+		s.metrics.observeDropped(venue, "negative_fill_delta")
+	}
 	return nil
 }

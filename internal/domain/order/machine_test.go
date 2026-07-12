@@ -57,17 +57,13 @@ var testRank = map[order.Status]int{
 
 func wantDecision(stored, ev order.Status, delta int) order.Decision {
 	if delta < 0 {
-		// Only a same-or-higher-rank event shrinking the cumulative fill
-		// is an anomaly; stale and post-terminal events with lower
-		// cumulative are ordinary out-of-order traffic.
-		switch {
-		case testRank[stored] == 3:
+		if stored.Terminal() {
 			return order.Decision{To: stored, Drop: order.DropTerminal}
-		case testRank[ev] < testRank[stored]:
-			return order.Decision{To: stored, Drop: order.DropStale}
-		default:
-			return order.Decision{To: stored, Drop: order.DropNegativeFill}
 		}
+		if testRank[ev] <= testRank[stored] {
+			return order.Decision{To: stored, Drop: order.DropStale}
+		}
+		return order.Decision{Transition: true, To: ev, FillAnomaly: true}
 	}
 
 	// Execution facts are extracted from any non-pending event, even when
@@ -122,7 +118,8 @@ func TestTransitionExhaustive(t *testing.T) {
 					if err != nil {
 						t.Fatalf("Transition: %v", err)
 					}
-					if got.Transition != want.Transition || got.To != want.To || got.Drop != want.Drop {
+					if got.Transition != want.Transition || got.To != want.To ||
+						got.FillAnomaly != want.FillAnomaly || got.Drop != want.Drop {
 						t.Fatalf("Transition = %+v, want %+v", got, want)
 					}
 					if !got.FillDelta.Equal(want.FillDelta) {
@@ -131,6 +128,26 @@ func TestTransitionExhaustive(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestTransitionRankAdvanceWithFillRegression(t *testing.T) {
+	t.Parallel()
+
+	current := order.State{
+		Status: order.StatusOpen, FilledQty: decimal.RequireFromString("0.01"),
+	}
+	decision, err := order.Transition(current, order.Event{
+		Status: order.StatusFilled, FilledQty: decimal.Zero,
+	})
+	if err != nil {
+		t.Fatalf("Transition: %v", err)
+	}
+	if !decision.Transition || decision.To != order.StatusFilled || !decision.FillAnomaly {
+		t.Fatalf("Transition = %+v, want filled transition with fill anomaly", decision)
+	}
+	if !decision.FillDelta.IsZero() || !current.FilledQty.Add(decision.FillDelta).Equal(current.FilledQty) {
+		t.Fatalf("FillDelta = %s, stored quantity must stay %s", decision.FillDelta, current.FilledQty)
 	}
 }
 

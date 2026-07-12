@@ -39,13 +39,13 @@ Transition table (event status × stored status → decision):
 | pending | drop | apply | apply | apply | apply | apply | apply |
 | open | drop | drop* | apply | apply | apply | apply | apply |
 | partially_filled | drop | drop* | apply* | apply | apply | apply | apply |
-| terminal | drop | drop | drop* | drop* | drop | drop | drop |
+| terminal | drop | drop | drop* | drop* | drop* | drop* | drop* |
 
 `*` = fills still extracted: any event whose cumulative filled qty exceeds the stored value records the delta as a fill, even when the status itself is dropped or a same-rank repeat. The table is total: every (stored, event) pair is either an apply row or covered by the drop rule (rank-regressing or same-rank event with no new cumulative fill → drop, counted in `order_events_dropped_total`).
 
 Apply is idempotent and runs in one transaction with `SELECT ... FOR UPDATE` on the order row:
 
-1. Fill delta = event cumulative filled qty − stored filled qty. Delta > 0 inserts a `fills` row (deduped by `venue_fill_id` where the venue provides one). A negative delta from a same-or-higher-rank event is an anomaly: drop, count, publish an anomaly event — never un-fill. Rank-regressing events with a lower cumulative are ordinary stale traffic, dropped by the rank rule.
+1. Fill delta = event cumulative filled qty − stored filled qty. Delta > 0 inserts a `fills` row (deduped by `venue_fill_id` where the venue provides one). A negative delta never un-fills. From a same- or lower-rank event it is ordinary stale traffic, dropped by the rank rule. From a rank-advancing event the status transition still applies — venue wins on state — while the fill regression is rejected and counted per source: `order_events_dropped_total{reason="negative_fill_delta"}` on the ack/stream path, `reconcile_diffs_total{kind="fill_anomaly"}` when reconciliation discovers it.
 2. Status change appends an `order_transitions` row (`seq` increments per order) and updates the order row.
 3. Ledger postings (below) happen in the same transaction.
 4. Outbox rows for `order.updated` / `order.filled` are inserted in the same transaction (ADR-0008).
