@@ -1,30 +1,35 @@
 # Roadmap
 
-The long-term goal is a serious, multi-exchange trading platform — not a portfolio tracker. Milestones build on each other; later items are recorded now so early design decisions don't paint them into a corner.
+The long-term goal is a serious multi-exchange trading platform, not a portfolio tracker. Milestones build on each other, and later items are written down now for one specific reason: early design decisions must not paint them into a corner. Several current architecture choices (the selector interface in the ledger, the NATS-shaped bus, the time-series ingestion discipline) exist because a later milestone on this page needs them.
 
-## M1 — Foundation + read-only exchange
+## M1: Foundation + read-only exchange (delivered)
 
-Tooling-first skeleton (lint/CI/compose), core runtime (config, logging, DI, metrics, in-proc bus), pure domain layer, GCT adapter behind ports with rate-limit + breaker, Postgres checkpoints + QuestDB time-series, portfolio snapshot daemon. Spec: [specs/m1-foundation.md](specs/m1-foundation.md).
+A daemon that snapshots exchange balances into QuestDB every minute and records durable checkpoints in Postgres. Modest by design: the milestone exists to force all the engineering infrastructure into existence (lint and CI, config, logging, dependency injection, migrations, generated SQL, integration tests against real databases, metrics, graceful shutdown, the exchange adapter and its resilience stack) against a problem that cannot lose money. Spec: [specs/m1-foundation.md](specs/m1-foundation.md).
 
-## M2 — Order management (current)
+## M2: Order management (current)
 
-Pure order state machine (every transition persisted: orders/fills tables), our ULID client order IDs as idempotency keys, private order-event streaming with reconnect, reconciliation loop diffing venue open orders vs local state, per-bot ledger with lots, Postgres outbox → bus. Spec: [specs/m2-oms.md](specs/m2-oms.md).
+The machinery that places orders and accounts for what happens to them. A pure order state machine where every transition is persisted, ULID client order IDs as idempotency keys so retries can never create duplicate orders, private order-event streaming per venue, a reconciliation loop that periodically converges local state with venue state, a per-bot inventory ledger built from lots, and a transactional outbox so no order event is ever lost between the database and the rest of the system. Orders enter only through the typed control-plane API and its `deltactl order` commands. Spec: [specs/m2-oms.md](specs/m2-oms.md).
 
-## M3 — Grid bots
+## M3: Grid bots
 
-Multiple concurrent grid bots, each an actor goroutine controlled via mailbox commands: pause / resume / stop individually. Live-adjustable lower/upper limits as a validated transaction (new ladder diffed against open orders and lots; buy side checked against free quote cash, sell side against inventory qty, reservations prevent double-claiming) — cancel/replace only the delta so PNL history is untouched. **PNL attribution is exact by construction:** sell fills pair with the lot bought one grid level below (grid pairing, not FIFO) → realized grid-cycle profit; unmatched lots are inventory → price-movement PNL = mark-to-market vs lot cost.
+A grid bot places a ladder of buy orders below the price and sell orders above it, profiting when the price oscillates across levels. This milestone runs multiple grid bots concurrently, each as an actor goroutine controlled through mailbox commands: pause, resume, stop individually.
 
-## M4+ — Execution & cross-venue
+Two design problems dominate, and both have their foundations laid in M2:
 
-- Cross-exchange arbitrage (a strategy holding two registry entries).
-- Execution algos as parent/child slicers feeding the OMS: TWAP, VWAP, iceberg, adaptive/dark-ice, pegged, scaling, pair trades, delta hedge.
-- NATS/JetStream replaces the in-proc bus when multi-process (ADR-0005).
-- Native exchange adapters (coder/websocket) replacing GCT per venue where it matters (ADR-0003).
-- Web UI / TUI over a proper HTTP API.
+- **Live limit adjustment as a validated transaction.** Changing a running bot's price range means computing the new order ladder, diffing it against the open orders and lots that already exist, checking the buy side against free quote cash and the sell side against actual inventory (with reservations so two bots cannot claim the same funds), and then cancelling and replacing only the delta. Replacing only the delta is what keeps profit history intact.
+- **Exact profit attribution by construction.** A sell fill pairs with the lot bought one grid level below it. That pairing is just another `LotSelector` implementation (the interface M2's ledger ships with FIFO), and it splits profit cleanly in two: realized grid-cycle profit from paired lots, and price-movement profit from unmatched inventory marked to market against lot cost. No estimation, no averaging: every profit number traces to specific fills.
 
-## Later — Quant analytics (sell-side style)
+## M4 and beyond: execution and cross-venue
 
-Nomura/GS/BofA-grade analytics computed over QuestDB series: standard deviations, z-scores, sigma-event detection, drawdown, cumulative net flow, upside skew, bell-curve/distribution charts, vol expansion from hedging. Implication for today: ingest time-series richly (balances, tickers, later fills, marks, funding) with clean symbols and designated timestamps so these are pure read-side computations later.
+- Cross-exchange arbitrage: a strategy holding two venue registry entries and trading the spread between them.
+- Execution algorithms as parent/child order slicers feeding the same order management core: TWAP and VWAP (time- and volume-weighted slicing of a large order), iceberg (show a sliver, hide the size), adaptive and pegged variants, scaling entries, pair trades, delta hedging.
+- NATS/JetStream replaces the in-process bus when the platform becomes multi-process ([ADR-0005](adr/0005-in-process-bus-nats-later.md) records the migration path and candidate uses).
+- Native exchange adapters replace gocryptotrader per venue where speed or reliability justifies it ([ADR-0003](adr/0003-gct-quarantine.md) makes this a drop-in swap).
+- A web UI over the same control-plane API the CLI uses, with TypeScript clients generated from the same protobuf contract ([ADR-0007](adr/0007-connectrpc-control-plane.md)).
+
+## Later: quant analytics
+
+Sell-side style analytics computed over the QuestDB series: standard deviations and z-scores, sigma-event detection, drawdown, cumulative net flow, skew, distribution charts, volatility expansion. The implication for today, and the reason this section exists on the roadmap at all: ingest time-series richly (balances, tickers, later fills, marks, funding) with clean symbols and designated timestamps, so all of this becomes pure read-side computation later instead of a re-ingestion project.
 
 ## Someday
 
