@@ -223,7 +223,7 @@ The GCT adapter implements `ports.PrivateStreamer`: it owns the authenticated we
 
 A websocket that drops for forty seconds loses every event the venue emitted in those forty seconds, and the venue will not resend them. The daemon restarting loses whatever was in flight. Failure mode 5: without a backstop, local state diverges from venue state and stays diverged. Reconciliation is the backstop: a loop that periodically asks the venue "what do you think is true" and repairs the difference. The design goal is that the stream is a latency optimization, and the system would eventually converge on reconciliation alone.
 
-The port surface it needs: `OpenOrders(ctx)` venue-wide, deliberately unfiltered by symbol, because the loop must see everything including orders it does not expect; and `GetOrder(ctx, ref)` for point lookups. The loop runs per venue every 30s (configurable) and immediately on `stream.reconnected`.
+The port surface it needs: `OpenOrders(ctx)` venue-wide and unfiltered by symbol on purpose, because the loop must see everything including orders it does not expect; and `GetOrder(ctx, ref)` for point lookups. The loop runs per venue every 30s (configurable) and immediately on `stream.reconnected`.
 
 ### A concrete repair, step by step
 

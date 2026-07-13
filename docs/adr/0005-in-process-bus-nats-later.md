@@ -25,6 +25,27 @@ The one behavioral decision that everything downstream depends on: **publishing 
 
 The consequence is stated as a contract: delivery is **at-most-once**. Any data that must not be lost does not travel as a bus payload; it is written to Postgres, and the bus event is merely a hint that something changed (ADR-0004 makes Postgres the truth; ADR-0008 builds the guaranteed path from Postgres commits onto the bus). A consumer that misses a hint catches up on its next read or its next timer tick. Every M2 consumer is built to this rule: the reconciler treats a missed `stream.reconnected` as "the next 30-second pass will cover it".
 
+What using it looks like, publisher and subscriber:
+
+```go
+// publisher (the streamer wiring): fire the hint, never check who listens
+_ = bus.Publish(ctx, bus.Event{
+    Subject: "stream.reconnected",
+    At:      clk.Now(),
+    Payload: venueID,
+})
+
+// subscriber (the reconciler): react, but never depend on delivery
+unsubscribe, _ := bus.Subscribe("stream.reconnected", func(ctx context.Context, e bus.Event) {
+    if venue, ok := e.Payload.(instrument.VenueID); ok {
+        kick(venue) // run a pass now instead of waiting for the timer
+    }
+})
+defer unsubscribe()
+```
+
+And what a drop looks like end to end, because the contract only clicks once you trace one: the reconciler is mid-pass and slow, its 64-slot buffer is full, a reconnect hint arrives, the bus increments `bus_dropped_total` and moves on, the publisher never blocks. The reconciler finishes its pass, learns nothing, and 30 seconds later its timer fires and the pass it runs covers the same gap the hint would have. The hint was an optimization; correctness never lived in it. Designing consumers so that sentence stays true is the whole discipline this ADR imposes.
+
 ## Why shape the interface like NATS from day one
 
 Because migration cost is decided at interface-design time, not migration time. When a second process appears (a separate UI backend, a distributed bot runner), swapping the in-process implementation for a NATS-backed one is an adapter change: same interface, same subjects mapping one-to-one to NATS subjects, no publisher or subscriber edits. If the interface had been designed around in-process convenience (passing pointers, synchronous handlers with return values), every consumer would need rework at exactly the moment the system is becoming more complex anyway.

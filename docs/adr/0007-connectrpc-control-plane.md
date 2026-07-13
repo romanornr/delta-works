@@ -44,7 +44,18 @@ Typed Go clients are generated now; typed TypeScript clients (connect-es) are ge
 - **No client bypasses the API.** CLI, TUI, and web UI speak the same contract; nothing gets a privileged in-process side channel. If a client needs something the API lacks, the API grows. One surface means one place to validate, authorize, and audit anything that touches money.
 - The wire package is `control.v1`, brand-neutral like metric names and bus subjects, so renaming the project (a stated possibility, see AGENTS.md) never breaks wire compatibility.
 - The server is disabled unless `api.addr` is configured. The default posture is a `unix://` socket: the socket file's permissions (0600) are the authentication model, which is exactly as strong as local user separation and involves zero token management. TCP is for trusted networks only until token auth (connectrpc/authn-go) is added alongside an actual remote-access need.
-- Request validation is declared in the schema with protovalidate annotations and enforced by an interceptor before any handler runs, so handlers never see an invalid request and validation rules live next to the fields they constrain.
+- Request validation is declared in the schema with protovalidate annotations and enforced by an interceptor before any handler runs, so handlers never see an invalid request and validation rules live next to the fields they constrain. What that looks like in a proto file, so the mechanism is concrete:
+
+```protobuf
+message PlaceOrderRequest {
+  string venue = 1 [(buf.validate.field).string.min_len = 1];
+  string qty   = 6 [(buf.validate.field).string.pattern = "^[0-9]+(\\.[0-9]+)?$"];
+  // relationships between fields use CEL expressions at the message level,
+  // e.g. "price must be set exactly when type is LIMIT"
+}
+```
+
+  A request violating a rule is rejected with `InvalidArgument` and the exact constraint that failed, before a single line of handler code runs. The rules travel with the schema, so the generated TypeScript client of M4 inherits them for free.
 - Event streaming is a server-streaming RPC fed by the internal bus, and it inherits the bus's at-most-once contract (ADR-0005): a slow client drops events rather than stalling the daemon. Anything that must not be lost is read back from Postgres (ADR-0004).
 - Money crosses the wire as decimal strings, never floats (ADR-0002, ADR-0004). Protobuf's `double` is IEEE 754 with the same defects as float64.
 

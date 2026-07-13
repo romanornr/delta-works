@@ -15,6 +15,8 @@ This repository held two earlier generations of code:
 
 The standard argument against rewriting is that the old code encodes years of accumulated bug fixes and edge-case knowledge you will lose. That argument assumes the old code is running in production and depended on. Here it was not: nothing depended on the legacy system running, there were no users to migrate, and the accumulated knowledge worth keeping was small enough to carry over as written decisions (these ADRs) rather than as code.
 
+What the decay looked like concretely, so the lesson is more than an adjective: in legacy `main`, gocryptotrader's `exchange.IBotExchange` and its order types appeared in function signatures from the HTTP handlers down to the portfolio math. Upgrading GCT meant compile errors in a dozen packages that had nothing to do with exchanges. Testing portfolio logic meant constructing GCT engine objects. Adding a second data source meant teaching every layer about a second vendor. None of these are bugs; they are the compounding tax of a missing boundary, and the tax grows with every feature. The specific cure is ADR-0003; the general cure is starting from seams instead of retrofitting them.
+
 ## Decision
 
 `main` was reset to a brand-new orphan root commit. An orphan commit is a commit with no parent: the branch's history starts there, so `git log` on `main` shows nothing older. The architecture is designed fresh from the domain outward. The legacy generations are reference material for "what did we try before and why did it hurt", never templates to copy from.
@@ -30,6 +32,16 @@ Nothing was deleted. Git makes it cheap to keep everything reachable without kee
 ## The rule that makes this safe
 
 A clean restart only stays clean if old patterns do not leak back in through habit. So the rule, recorded here and repeated in AGENTS.md: legacy `main` and `v3` may be read to answer "how did we handle X before and what went wrong", and must never be ported from wholesale. If a legacy approach turns out to be right, it re-enters the codebase through a fresh design and, when significant, its own ADR, so the reasoning is recorded this time.
+
+Practical archaeology, when you need it:
+
+```sh
+git log --oneline legacy-final -- path/of/interest   # what happened to a file, historically
+git show legacy-final:internal/somepkg/file.go       # read one old file without checking anything out
+git diff v3 legacy-final -- path/                    # how the two generations differed on a topic
+```
+
+Reading is encouraged; `git checkout legacy-final -- path/` into the working tree is the move this rule forbids.
 
 ## Consequences
 

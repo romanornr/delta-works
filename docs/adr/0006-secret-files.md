@@ -29,7 +29,29 @@ Each venue credential is provided in exactly one of two ways:
 | direct value | `api_key`, `api_secret` | environment injection: `DELTA__VENUES__<VENUE>__API_KEY` |
 | file path | `api_key_file`, `api_secret_file` | one secret per file, possibly multiline (PEM), read at config load |
 
-Setting both forms for one credential is a validation error, not a precedence rule. Precedence rules are where configuration bugs hide: with "file overrides value", an operator setting the env variable and seeing it silently ignored loses an afternoon. An error at startup costs a second.
+In config, the two forms side by side:
+
+```yaml
+venues:
+  coinbase:
+    enabled: true
+    api_key_file: secrets/coinbase.key      # PEM, multiline, mode 600, gitignored
+    api_secret_file: secrets/coinbase.secret
+  bybit:
+    enabled: true
+    api_key: ""        # left empty in the file; injected as
+    api_secret: ""     # DELTA__VENUES__BYBIT__API_KEY / __API_SECRET
+```
+
+Setting both forms for one credential is a validation error, not a precedence rule:
+
+```
+set either the value or the file, not both
+```
+
+(the error is wrapped with the venue and credential it names when it surfaces at startup)
+
+Precedence rules are where configuration bugs hide: with "file overrides value", an operator setting the env variable and seeing it silently ignored loses an afternoon. An error at startup costs a second.
 
 Files are resolved during config load, before validation, so everything past the config package sees only resolved values and has no idea files were involved. Locally, secret files live in the gitignored `secrets/` directory with mode 600 (owner read/write only).
 

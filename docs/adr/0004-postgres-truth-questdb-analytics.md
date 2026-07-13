@@ -26,9 +26,18 @@ Two databases, with a hard rule about which data goes where.
 
 **Postgres** is the sole source of truth for anything with accounting or state-machine semantics. Access is through pgx/v5 with sqlc-generated queries; schema changes are goose migrations embedded in the binary via `embed.FS` and applied automatically at startup, so a deployed binary and its schema cannot drift apart. All money columns are `numeric`, mapped to `shopspring/decimal` in Go (ADR-0002).
 
-**QuestDB** receives append-only time-series over ILP (InfluxDB Line Protocol) via HTTP, using go-questdb-client/v4. ILP is a text protocol built for ingestion speed; the client batches rows and flushes them in groups. The decimal-to-float64 conversion happens only at this edge, and it is acceptable only because nothing accounting-critical is ever read back from QuestDB. A chart can be off by a float rounding error; a ledger cannot.
+**QuestDB** receives append-only time-series over ILP (InfluxDB Line Protocol) via HTTP, using go-questdb-client/v4. ILP is a text protocol built for ingestion speed; one balance observation on the wire looks like this:
+
+```
+balances,venue=coinbase,account=spot,currency=BTC total=0.5123,free=0.5,locked=0.0123 1720800000000000000
+ |table | |------- symbols (indexed tags) ------| |-------- float64 fields --------| |timestamp, ns|
+```
+
+The client batches rows like this and flushes them in groups; the table and its columns are auto-created on first write, which is why QuestDB needs no migrations. The decimal-to-float64 conversion happens only at this edge, and it is acceptable only because nothing accounting-critical is ever read back from QuestDB. A chart can be off by a float rounding error; a ledger cannot.
 
 The rule in one sentence: if getting a number wrong would corrupt money math or order state, it lives in Postgres; if it decorates a dashboard or feeds statistics, it lives in QuestDB.
+
+To feel why the rule is not pedantry, walk one violation: suppose fills were stored only in QuestDB. ILP is at-least-once, so a network retry writes some fills twice; float64 rounds the quantities; there are no constraints to catch either. Now the ledger built from those fills carries phantom inventory at slightly wrong prices, every profit number inherits the error, and nothing anywhere can detect it because the corrupted store is also the reference. The same fills in Postgres are exact `numeric` values, written once (transactionally, deduplicated by constraint), and the QuestDB copy becomes what it should be: a disposable projection for charts, rebuildable from truth at any time.
 
 ### The checkpoint pattern that connects them
 

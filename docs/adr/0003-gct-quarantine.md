@@ -34,7 +34,36 @@ Services depend on ports. The adapter depends on the ports and on GCT. GCT is de
 - GCT is imported only inside `internal/adapters/gct/`. This is enforced mechanically by a depguard rule in `.golangci.yml`, so an accidental import elsewhere fails `make lint` and CI. Boundaries kept by convention erode; boundaries kept by a linter do not.
 - The adapter boots a trimmed GCT engine: the exchange manager only, with GCT's web UI, database, and comms subsystems disabled. It runs under the fx lifecycle like every other component.
 - `convert.go` is the single place where GCT types and domain types meet, and it is tested heavily. This is also where GCT's float64 amounts are converted to `shopspring/decimal` (ADR-0002): float enters at the boundary and does not travel further.
-- The adapter translates GCT's failures into a small set of typed domain errors: `ErrVenueUnavailable`, `ErrAuth`, `ErrRateLimited`, later `ErrNotFound` and `ErrTradingUnsupported`. Callers classify failures with `errors.Is` against these sentinels and never parse GCT error strings. This matters operationally: the circuit breaker must distinguish "the venue is down" (should open the circuit) from "my API key is wrong" (should not), and it can only do that if the adapter names the difference.
+- The adapter translates GCT's failures into a small set of typed domain errors: `ErrVenueUnavailable`, `ErrAuth`, `ErrRateLimited`, later `ErrNotFound` and `ErrTradingUnsupported`. Callers classify failures with `errors.Is` against these sentinels and never parse GCT error strings. This matters operationally: the circuit breaker must distinguish "the venue is down" (should open the circuit) from "my API key is wrong" (should not), and it can only do that if the adapter names the difference. The classifier in code, to make the shape concrete:
+
+```go
+// internal/exchange/registry.go: which errors count as venue failures.
+// Everything listed is "not the venue's fault" and must not open the circuit.
+func isBreakerSuccess(err error) bool {
+    return err == nil ||
+        errors.Is(err, ports.ErrAuth) ||               // our key is wrong
+        errors.Is(err, ports.ErrUnsupportedAccount) || // our config is wrong
+        errors.Is(err, ports.ErrNotFound) ||           // a real answer: "no such order"
+        errors.Is(err, context.Canceled) ||            // we hung up, not them
+        errors.Is(err, errLimiterWait)                 // our own throttle
+}
+```
+
+  Every entry in that list was a decision, and one (`ErrNotFound`) was added after review caught that routine reconciliation lookups would otherwise open the circuit and block trading. Typed errors are what make such a list possible at all; with string matching it would be a pile of regexes over another project's wording.
+
+- The depguard rule that enforces the boundary, from `.golangci.yml`, so you know what firing looks like:
+
+```yaml
+depguard:
+  rules:
+    gct-quarantine:
+      list-mode: lax
+      files:
+        - "!**/internal/adapters/gct/**"
+      deny:
+        - pkg: github.com/thrasher-corp/gocryptotrader
+          desc: gocryptotrader may only be imported inside internal/adapters/gct (ADR-0003)
+```
 
 ## Resilience layering
 

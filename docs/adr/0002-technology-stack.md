@@ -56,6 +56,28 @@ An ORM generates SQL from Go code at runtime. sqlc does the reverse: you write r
 
 For a system whose correctness lives in its queries (row locking, `ON CONFLICT` idempotency, partial indexes, advisory locks in M2), hiding the SQL is the wrong direction. sqlc keeps the SQL visible and reviewable while removing the hand-written scanning boilerplate where mistakes hide. goose handles schema migrations as plain SQL files embedded in the binary, applied in order at startup.
 
+## How configuration actually flows (koanf)
+
+Configuration layers, later layers overriding earlier ones: defaults in code, then `config.yaml`, then environment variables. The environment mapping is mechanical: `DELTA__` prefix, `__` for nesting. Seeing it once explains it forever:
+
+```yaml
+# config.yaml
+snapshot:
+  interval: 60s
+venues:
+  coinbase:
+    enabled: true
+```
+
+```sh
+# overrides snapshot.interval without touching the file:
+export DELTA__SNAPSHOT__INTERVAL=30s
+# overrides venues.coinbase.api_key (secrets never go in the file, ADR-0006):
+export DELTA__VENUES__COINBASE__API_KEY=...
+```
+
+Everything lands in one typed `Config` struct, and `Validate()` runs at startup and rejects out-of-range values (an interval of `0s`, an outbox batch of `10000`) with a message naming the exact key. The daemon refuses to start half-configured; a config error costs one restart, not one confused afternoon. The `DELTA__` prefix itself comes from a single constant (`config.EnvPrefix`), part of the project's renameability rule (AGENTS.md).
+
 ## Why a dependency-injection framework at all
 
 fx wires the application together from constructors: each component declares what it needs as parameters and fx builds the graph, then starts lifecycle hooks in dependency order and stops them in reverse. Two things justify the dependency over hand-wiring in `main()`:
