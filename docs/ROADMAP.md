@@ -6,7 +6,7 @@ The long-term goal is a serious multi-exchange trading platform, not a portfolio
 
 A daemon that snapshots exchange balances into QuestDB every minute and records durable checkpoints in Postgres. Modest by design: the milestone exists to force all the engineering infrastructure into existence (lint and CI, config, logging, dependency injection, migrations, generated SQL, integration tests against real databases, metrics, graceful shutdown, the exchange adapter and its resilience stack) against a problem that cannot lose money. Spec: [specs/account-watch.md](specs/account-watch.md).
 
-## Manual trading (code complete; live verification pending)
+## Manual trading (delivered)
 
 The machinery that places orders and accounts for what happens to them. A pure order state machine where every transition is persisted, ULID client order IDs as idempotency keys so retries can never create duplicate orders, private order-event streaming per venue, a reconciliation loop that periodically converges local state with venue state, a per-bot inventory ledger built from lots, and a transactional outbox so no order event is ever lost between the database and the rest of the system. Orders enter only through the typed control-plane API and its `deltactl order` commands. Spec: [specs/manual-trading.md](specs/manual-trading.md).
 

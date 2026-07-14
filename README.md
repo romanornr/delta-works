@@ -9,7 +9,7 @@ One long-running daemon (`deltad`) connects to cryptocurrency exchanges, and a C
 | Milestone | What it delivers | Status |
 |---|---|---|
 | Account watch | the engineering foundation plus a read-only daemon: balance snapshots into a time-series database, durable checkpoints, metrics, health, graceful shutdown | delivered |
-| Manual trading | order placement through the CLI: a persisted order state machine, private event streams, a reconciliation loop, a per-bot inventory ledger with exact cost basis | code complete; live verification pending |
+| Manual trading | order placement through the CLI: a persisted order state machine, private event streams, a reconciliation loop, a per-bot inventory ledger with exact cost basis | delivered |
 | Grid bots | concurrent grid trading bots with exact profit attribution | next |
 | Execution and cross-venue | execution algorithms, cross-venue strategies, a web UI | planned |
 
