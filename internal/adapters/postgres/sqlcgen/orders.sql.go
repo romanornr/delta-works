@@ -282,6 +282,77 @@ func (q *Queries) ListActiveOrders(ctx context.Context, venue string) ([]Order, 
 	return items, nil
 }
 
+const listOrders = `-- name: ListOrders :many
+SELECT client_order_id, venue, base, quote, venue_symbol, side, type, price, qty, filled_qty, avg_fill_price, status, venue_order_id, bot_id, cancel_requested_at, reason, created_at, updated_at FROM orders
+WHERE ($1::text IS NULL OR venue = $1)
+  AND ($2::text[] IS NULL OR status = ANY($2::text[]))
+  AND ($3::text IS NULL OR bot_id = $3)
+  AND (
+    $4::timestamptz IS NULL OR
+    (created_at, client_order_id) < (
+      $4::timestamptz,
+      $5::text
+    )
+  )
+ORDER BY created_at DESC, client_order_id DESC
+LIMIT $6::bigint
+`
+
+type ListOrdersParams struct {
+	Venue           *string
+	Statuses        []string
+	BotID           *string
+	CursorCreatedAt pgtype.Timestamptz
+	CursorID        *string
+	RowLimit        int64
+}
+
+func (q *Queries) ListOrders(ctx context.Context, arg ListOrdersParams) ([]Order, error) {
+	rows, err := q.db.Query(ctx, listOrders,
+		arg.Venue,
+		arg.Statuses,
+		arg.BotID,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Order
+	for rows.Next() {
+		var i Order
+		if err := rows.Scan(
+			&i.ClientOrderID,
+			&i.Venue,
+			&i.Base,
+			&i.Quote,
+			&i.VenueSymbol,
+			&i.Side,
+			&i.Type,
+			&i.Price,
+			&i.Qty,
+			&i.FilledQty,
+			&i.AvgFillPrice,
+			&i.Status,
+			&i.VenueOrderID,
+			&i.BotID,
+			&i.CancelRequestedAt,
+			&i.Reason,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markCancelRequested = `-- name: MarkCancelRequested :execrows
 UPDATE orders
 SET cancel_requested_at = COALESCE(cancel_requested_at, $2),

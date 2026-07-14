@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -45,13 +46,15 @@ type venueLoop struct {
 
 // Service reconciles active local orders against venue order state.
 type Service struct {
-	venues   []*venueLoop
-	store    ports.OrderStore
-	bus      bus.Bus
-	clk      clock.Clock
-	log      log.Logger
-	interval time.Duration
-	metrics  *Metrics
+	venues    []*venueLoop
+	store     ports.OrderStore
+	bus       bus.Bus
+	clk       clock.Clock
+	log       log.Logger
+	interval  time.Duration
+	metrics   *Metrics
+	ready     chan struct{}
+	readyOnce sync.Once
 }
 
 // New builds the reconciliation service. Metrics must not be nil.
@@ -75,8 +78,12 @@ func New(
 	return &Service{
 		venues: loops, store: store, bus: b, clk: clk,
 		log: log.Component(logger, "reconcile"), interval: interval, metrics: metrics,
+		ready: make(chan struct{}),
 	}
 }
+
+// Ready is closed after the reconnect subscription has been installed.
+func (s *Service) Ready() <-chan struct{} { return s.ready }
 
 // Run reconciles each venue until ctx is canceled. Venue failures skip one
 // pass; store failures stop the service so the process can fail fast.
@@ -86,6 +93,7 @@ func (s *Service) Run(ctx context.Context) error {
 		return fmt.Errorf("reconcile: subscribe to stream reconnects: %w", err)
 	}
 	defer unsubscribe()
+	s.readyOnce.Do(func() { close(s.ready) })
 
 	g, ctx := errgroup.WithContext(ctx)
 	for _, v := range s.venues {

@@ -22,6 +22,52 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type ReconcileDiffKind int32
+
+const (
+	ReconcileDiffKind_RECONCILE_DIFF_KIND_UNSPECIFIED ReconcileDiffKind = 0
+	ReconcileDiffKind_RECONCILE_DIFF_KIND_ORPHAN      ReconcileDiffKind = 1
+)
+
+// Enum value maps for ReconcileDiffKind.
+var (
+	ReconcileDiffKind_name = map[int32]string{
+		0: "RECONCILE_DIFF_KIND_UNSPECIFIED",
+		1: "RECONCILE_DIFF_KIND_ORPHAN",
+	}
+	ReconcileDiffKind_value = map[string]int32{
+		"RECONCILE_DIFF_KIND_UNSPECIFIED": 0,
+		"RECONCILE_DIFF_KIND_ORPHAN":      1,
+	}
+)
+
+func (x ReconcileDiffKind) Enum() *ReconcileDiffKind {
+	p := new(ReconcileDiffKind)
+	*p = x
+	return p
+}
+
+func (x ReconcileDiffKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ReconcileDiffKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_control_v1_events_proto_enumTypes[0].Descriptor()
+}
+
+func (ReconcileDiffKind) Type() protoreflect.EnumType {
+	return &file_control_v1_events_proto_enumTypes[0]
+}
+
+func (x ReconcileDiffKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ReconcileDiffKind.Descriptor instead.
+func (ReconcileDiffKind) EnumDescriptor() ([]byte, []int) {
+	return file_control_v1_events_proto_rawDescGZIP(), []int{0}
+}
+
 type StreamEventsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SubjectPrefix string                 `protobuf:"bytes,1,opt,name=subject_prefix,json=subjectPrefix,proto3" json:"subject_prefix,omitempty"`
@@ -119,6 +165,9 @@ type Event struct {
 	// Types that are valid to be assigned to Payload:
 	//
 	//	*Event_SnapshotTaken
+	//	*Event_OrderUpdated
+	//	*Event_OrderFilled
+	//	*Event_ReconcileDiff
 	Payload       isEvent_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -184,6 +233,33 @@ func (x *Event) GetSnapshotTaken() *AccountSnapshot {
 	return nil
 }
 
+func (x *Event) GetOrderUpdated() *OrderUpdated {
+	if x != nil {
+		if x, ok := x.Payload.(*Event_OrderUpdated); ok {
+			return x.OrderUpdated
+		}
+	}
+	return nil
+}
+
+func (x *Event) GetOrderFilled() *OrderFilled {
+	if x != nil {
+		if x, ok := x.Payload.(*Event_OrderFilled); ok {
+			return x.OrderFilled
+		}
+	}
+	return nil
+}
+
+func (x *Event) GetReconcileDiff() *ReconcileDiff {
+	if x != nil {
+		if x, ok := x.Payload.(*Event_ReconcileDiff); ok {
+			return x.ReconcileDiff
+		}
+	}
+	return nil
+}
+
 type isEvent_Payload interface {
 	isEvent_Payload()
 }
@@ -192,7 +268,293 @@ type Event_SnapshotTaken struct {
 	SnapshotTaken *AccountSnapshot `protobuf:"bytes,10,opt,name=snapshot_taken,json=snapshotTaken,proto3,oneof"`
 }
 
+type Event_OrderUpdated struct {
+	OrderUpdated *OrderUpdated `protobuf:"bytes,11,opt,name=order_updated,json=orderUpdated,proto3,oneof"`
+}
+
+type Event_OrderFilled struct {
+	OrderFilled *OrderFilled `protobuf:"bytes,12,opt,name=order_filled,json=orderFilled,proto3,oneof"`
+}
+
+type Event_ReconcileDiff struct {
+	ReconcileDiff *ReconcileDiff `protobuf:"bytes,13,opt,name=reconcile_diff,json=reconcileDiff,proto3,oneof"`
+}
+
 func (*Event_SnapshotTaken) isEvent_Payload() {}
+
+func (*Event_OrderUpdated) isEvent_Payload() {}
+
+func (*Event_OrderFilled) isEvent_Payload() {}
+
+func (*Event_ReconcileDiff) isEvent_Payload() {}
+
+type OrderUpdated struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ClientOrderId string                 `protobuf:"bytes,1,opt,name=client_order_id,json=clientOrderId,proto3" json:"client_order_id,omitempty"`
+	Venue         string                 `protobuf:"bytes,2,opt,name=venue,proto3" json:"venue,omitempty"`
+	Base          string                 `protobuf:"bytes,3,opt,name=base,proto3" json:"base,omitempty"`
+	Quote         string                 `protobuf:"bytes,4,opt,name=quote,proto3" json:"quote,omitempty"`
+	Status        OrderStatus            `protobuf:"varint,5,opt,name=status,proto3,enum=control.v1.OrderStatus" json:"status,omitempty"`
+	FilledQty     string                 `protobuf:"bytes,6,opt,name=filled_qty,json=filledQty,proto3" json:"filled_qty,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OrderUpdated) Reset() {
+	*x = OrderUpdated{}
+	mi := &file_control_v1_events_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OrderUpdated) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OrderUpdated) ProtoMessage() {}
+
+func (x *OrderUpdated) ProtoReflect() protoreflect.Message {
+	mi := &file_control_v1_events_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OrderUpdated.ProtoReflect.Descriptor instead.
+func (*OrderUpdated) Descriptor() ([]byte, []int) {
+	return file_control_v1_events_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *OrderUpdated) GetClientOrderId() string {
+	if x != nil {
+		return x.ClientOrderId
+	}
+	return ""
+}
+
+func (x *OrderUpdated) GetVenue() string {
+	if x != nil {
+		return x.Venue
+	}
+	return ""
+}
+
+func (x *OrderUpdated) GetBase() string {
+	if x != nil {
+		return x.Base
+	}
+	return ""
+}
+
+func (x *OrderUpdated) GetQuote() string {
+	if x != nil {
+		return x.Quote
+	}
+	return ""
+}
+
+func (x *OrderUpdated) GetStatus() OrderStatus {
+	if x != nil {
+		return x.Status
+	}
+	return OrderStatus_ORDER_STATUS_UNSPECIFIED
+}
+
+func (x *OrderUpdated) GetFilledQty() string {
+	if x != nil {
+		return x.FilledQty
+	}
+	return ""
+}
+
+type OrderFilled struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ClientOrderId string                 `protobuf:"bytes,1,opt,name=client_order_id,json=clientOrderId,proto3" json:"client_order_id,omitempty"`
+	Venue         string                 `protobuf:"bytes,2,opt,name=venue,proto3" json:"venue,omitempty"`
+	Base          string                 `protobuf:"bytes,3,opt,name=base,proto3" json:"base,omitempty"`
+	Quote         string                 `protobuf:"bytes,4,opt,name=quote,proto3" json:"quote,omitempty"`
+	Status        OrderStatus            `protobuf:"varint,5,opt,name=status,proto3,enum=control.v1.OrderStatus" json:"status,omitempty"`
+	FilledQty     string                 `protobuf:"bytes,6,opt,name=filled_qty,json=filledQty,proto3" json:"filled_qty,omitempty"`
+	Qty           string                 `protobuf:"bytes,7,opt,name=qty,proto3" json:"qty,omitempty"`
+	Price         string                 `protobuf:"bytes,8,opt,name=price,proto3" json:"price,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OrderFilled) Reset() {
+	*x = OrderFilled{}
+	mi := &file_control_v1_events_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OrderFilled) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OrderFilled) ProtoMessage() {}
+
+func (x *OrderFilled) ProtoReflect() protoreflect.Message {
+	mi := &file_control_v1_events_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OrderFilled.ProtoReflect.Descriptor instead.
+func (*OrderFilled) Descriptor() ([]byte, []int) {
+	return file_control_v1_events_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *OrderFilled) GetClientOrderId() string {
+	if x != nil {
+		return x.ClientOrderId
+	}
+	return ""
+}
+
+func (x *OrderFilled) GetVenue() string {
+	if x != nil {
+		return x.Venue
+	}
+	return ""
+}
+
+func (x *OrderFilled) GetBase() string {
+	if x != nil {
+		return x.Base
+	}
+	return ""
+}
+
+func (x *OrderFilled) GetQuote() string {
+	if x != nil {
+		return x.Quote
+	}
+	return ""
+}
+
+func (x *OrderFilled) GetStatus() OrderStatus {
+	if x != nil {
+		return x.Status
+	}
+	return OrderStatus_ORDER_STATUS_UNSPECIFIED
+}
+
+func (x *OrderFilled) GetFilledQty() string {
+	if x != nil {
+		return x.FilledQty
+	}
+	return ""
+}
+
+func (x *OrderFilled) GetQty() string {
+	if x != nil {
+		return x.Qty
+	}
+	return ""
+}
+
+func (x *OrderFilled) GetPrice() string {
+	if x != nil {
+		return x.Price
+	}
+	return ""
+}
+
+type ReconcileDiff struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          ReconcileDiffKind      `protobuf:"varint,1,opt,name=kind,proto3,enum=control.v1.ReconcileDiffKind" json:"kind,omitempty"`
+	Venue         string                 `protobuf:"bytes,2,opt,name=venue,proto3" json:"venue,omitempty"`
+	VenueOrderId  string                 `protobuf:"bytes,3,opt,name=venue_order_id,json=venueOrderId,proto3" json:"venue_order_id,omitempty"`
+	ClientOrderId string                 `protobuf:"bytes,4,opt,name=client_order_id,json=clientOrderId,proto3" json:"client_order_id,omitempty"`
+	Base          string                 `protobuf:"bytes,5,opt,name=base,proto3" json:"base,omitempty"`
+	Quote         string                 `protobuf:"bytes,6,opt,name=quote,proto3" json:"quote,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReconcileDiff) Reset() {
+	*x = ReconcileDiff{}
+	mi := &file_control_v1_events_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReconcileDiff) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReconcileDiff) ProtoMessage() {}
+
+func (x *ReconcileDiff) ProtoReflect() protoreflect.Message {
+	mi := &file_control_v1_events_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReconcileDiff.ProtoReflect.Descriptor instead.
+func (*ReconcileDiff) Descriptor() ([]byte, []int) {
+	return file_control_v1_events_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ReconcileDiff) GetKind() ReconcileDiffKind {
+	if x != nil {
+		return x.Kind
+	}
+	return ReconcileDiffKind_RECONCILE_DIFF_KIND_UNSPECIFIED
+}
+
+func (x *ReconcileDiff) GetVenue() string {
+	if x != nil {
+		return x.Venue
+	}
+	return ""
+}
+
+func (x *ReconcileDiff) GetVenueOrderId() string {
+	if x != nil {
+		return x.VenueOrderId
+	}
+	return ""
+}
+
+func (x *ReconcileDiff) GetClientOrderId() string {
+	if x != nil {
+		return x.ClientOrderId
+	}
+	return ""
+}
+
+func (x *ReconcileDiff) GetBase() string {
+	if x != nil {
+		return x.Base
+	}
+	return ""
+}
+
+func (x *ReconcileDiff) GetQuote() string {
+	if x != nil {
+		return x.Quote
+	}
+	return ""
+}
 
 // AccountSnapshot is a point-in-time view of one account's balances.
 type AccountSnapshot struct {
@@ -207,7 +569,7 @@ type AccountSnapshot struct {
 
 func (x *AccountSnapshot) Reset() {
 	*x = AccountSnapshot{}
-	mi := &file_control_v1_events_proto_msgTypes[3]
+	mi := &file_control_v1_events_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -219,7 +581,7 @@ func (x *AccountSnapshot) String() string {
 func (*AccountSnapshot) ProtoMessage() {}
 
 func (x *AccountSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_control_v1_events_proto_msgTypes[3]
+	mi := &file_control_v1_events_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -232,7 +594,7 @@ func (x *AccountSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountSnapshot.ProtoReflect.Descriptor instead.
 func (*AccountSnapshot) Descriptor() ([]byte, []int) {
-	return file_control_v1_events_proto_rawDescGZIP(), []int{3}
+	return file_control_v1_events_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *AccountSnapshot) GetVenue() string {
@@ -277,7 +639,7 @@ type Balance struct {
 
 func (x *Balance) Reset() {
 	*x = Balance{}
-	mi := &file_control_v1_events_proto_msgTypes[4]
+	mi := &file_control_v1_events_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -289,7 +651,7 @@ func (x *Balance) String() string {
 func (*Balance) ProtoMessage() {}
 
 func (x *Balance) ProtoReflect() protoreflect.Message {
-	mi := &file_control_v1_events_proto_msgTypes[4]
+	mi := &file_control_v1_events_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -302,7 +664,7 @@ func (x *Balance) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Balance.ProtoReflect.Descriptor instead.
 func (*Balance) Descriptor() ([]byte, []int) {
-	return file_control_v1_events_proto_rawDescGZIP(), []int{4}
+	return file_control_v1_events_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Balance) GetCurrency() string {
@@ -338,17 +700,45 @@ var File_control_v1_events_proto protoreflect.FileDescriptor
 const file_control_v1_events_proto_rawDesc = "" +
 	"\n" +
 	"\x17control/v1/events.proto\x12\n" +
-	"control.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"<\n" +
+	"control.v1\x1a\x17control/v1/orders.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"<\n" +
 	"\x13StreamEventsRequest\x12%\n" +
 	"\x0esubject_prefix\x18\x01 \x01(\tR\rsubjectPrefix\"?\n" +
 	"\x14StreamEventsResponse\x12'\n" +
-	"\x05event\x18\x01 \x01(\v2\x11.control.v1.EventR\x05event\"\x9e\x01\n" +
+	"\x05event\x18\x01 \x01(\v2\x11.control.v1.EventR\x05event\"\xe1\x02\n" +
 	"\x05Event\x12\x18\n" +
 	"\asubject\x18\x01 \x01(\tR\asubject\x12*\n" +
 	"\x02at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x02at\x12D\n" +
 	"\x0esnapshot_taken\x18\n" +
-	" \x01(\v2\x1b.control.v1.AccountSnapshotH\x00R\rsnapshotTakenB\t\n" +
-	"\apayload\"\xa9\x01\n" +
+	" \x01(\v2\x1b.control.v1.AccountSnapshotH\x00R\rsnapshotTaken\x12?\n" +
+	"\rorder_updated\x18\v \x01(\v2\x18.control.v1.OrderUpdatedH\x00R\forderUpdated\x12<\n" +
+	"\forder_filled\x18\f \x01(\v2\x17.control.v1.OrderFilledH\x00R\vorderFilled\x12B\n" +
+	"\x0ereconcile_diff\x18\r \x01(\v2\x19.control.v1.ReconcileDiffH\x00R\rreconcileDiffB\t\n" +
+	"\apayload\"\xc6\x01\n" +
+	"\fOrderUpdated\x12&\n" +
+	"\x0fclient_order_id\x18\x01 \x01(\tR\rclientOrderId\x12\x14\n" +
+	"\x05venue\x18\x02 \x01(\tR\x05venue\x12\x12\n" +
+	"\x04base\x18\x03 \x01(\tR\x04base\x12\x14\n" +
+	"\x05quote\x18\x04 \x01(\tR\x05quote\x12/\n" +
+	"\x06status\x18\x05 \x01(\x0e2\x17.control.v1.OrderStatusR\x06status\x12\x1d\n" +
+	"\n" +
+	"filled_qty\x18\x06 \x01(\tR\tfilledQty\"\xed\x01\n" +
+	"\vOrderFilled\x12&\n" +
+	"\x0fclient_order_id\x18\x01 \x01(\tR\rclientOrderId\x12\x14\n" +
+	"\x05venue\x18\x02 \x01(\tR\x05venue\x12\x12\n" +
+	"\x04base\x18\x03 \x01(\tR\x04base\x12\x14\n" +
+	"\x05quote\x18\x04 \x01(\tR\x05quote\x12/\n" +
+	"\x06status\x18\x05 \x01(\x0e2\x17.control.v1.OrderStatusR\x06status\x12\x1d\n" +
+	"\n" +
+	"filled_qty\x18\x06 \x01(\tR\tfilledQty\x12\x10\n" +
+	"\x03qty\x18\a \x01(\tR\x03qty\x12\x14\n" +
+	"\x05price\x18\b \x01(\tR\x05price\"\xd0\x01\n" +
+	"\rReconcileDiff\x121\n" +
+	"\x04kind\x18\x01 \x01(\x0e2\x1d.control.v1.ReconcileDiffKindR\x04kind\x12\x14\n" +
+	"\x05venue\x18\x02 \x01(\tR\x05venue\x12$\n" +
+	"\x0evenue_order_id\x18\x03 \x01(\tR\fvenueOrderId\x12&\n" +
+	"\x0fclient_order_id\x18\x04 \x01(\tR\rclientOrderId\x12\x12\n" +
+	"\x04base\x18\x05 \x01(\tR\x04base\x12\x14\n" +
+	"\x05quote\x18\x06 \x01(\tR\x05quote\"\xa9\x01\n" +
 	"\x0fAccountSnapshot\x12\x14\n" +
 	"\x05venue\x18\x01 \x01(\tR\x05venue\x12\x18\n" +
 	"\aaccount\x18\x02 \x01(\tR\aaccount\x125\n" +
@@ -358,7 +748,10 @@ const file_control_v1_events_proto_rawDesc = "" +
 	"\bcurrency\x18\x01 \x01(\tR\bcurrency\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\tR\x05total\x12\x12\n" +
 	"\x04free\x18\x03 \x01(\tR\x04free\x12\x16\n" +
-	"\x06locked\x18\x04 \x01(\tR\x06locked2e\n" +
+	"\x06locked\x18\x04 \x01(\tR\x06locked*X\n" +
+	"\x11ReconcileDiffKind\x12#\n" +
+	"\x1fRECONCILE_DIFF_KIND_UNSPECIFIED\x10\x00\x12\x1e\n" +
+	"\x1aRECONCILE_DIFF_KIND_ORPHAN\x10\x012e\n" +
 	"\fEventService\x12U\n" +
 	"\fStreamEvents\x12\x1f.control.v1.StreamEventsRequest\x1a .control.v1.StreamEventsResponse\"\x000\x01B\xae\x01\n" +
 	"\x0ecom.control.v1B\vEventsProtoP\x01ZFgithub.com/romanornr/delta-works/internal/api/gen/control/v1;controlv1\xa2\x02\x03CXX\xaa\x02\n" +
@@ -377,28 +770,40 @@ func file_control_v1_events_proto_rawDescGZIP() []byte {
 	return file_control_v1_events_proto_rawDescData
 }
 
-var file_control_v1_events_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_control_v1_events_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_control_v1_events_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_control_v1_events_proto_goTypes = []any{
-	(*StreamEventsRequest)(nil),   // 0: control.v1.StreamEventsRequest
-	(*StreamEventsResponse)(nil),  // 1: control.v1.StreamEventsResponse
-	(*Event)(nil),                 // 2: control.v1.Event
-	(*AccountSnapshot)(nil),       // 3: control.v1.AccountSnapshot
-	(*Balance)(nil),               // 4: control.v1.Balance
-	(*timestamppb.Timestamp)(nil), // 5: google.protobuf.Timestamp
+	(ReconcileDiffKind)(0),        // 0: control.v1.ReconcileDiffKind
+	(*StreamEventsRequest)(nil),   // 1: control.v1.StreamEventsRequest
+	(*StreamEventsResponse)(nil),  // 2: control.v1.StreamEventsResponse
+	(*Event)(nil),                 // 3: control.v1.Event
+	(*OrderUpdated)(nil),          // 4: control.v1.OrderUpdated
+	(*OrderFilled)(nil),           // 5: control.v1.OrderFilled
+	(*ReconcileDiff)(nil),         // 6: control.v1.ReconcileDiff
+	(*AccountSnapshot)(nil),       // 7: control.v1.AccountSnapshot
+	(*Balance)(nil),               // 8: control.v1.Balance
+	(*timestamppb.Timestamp)(nil), // 9: google.protobuf.Timestamp
+	(OrderStatus)(0),              // 10: control.v1.OrderStatus
 }
 var file_control_v1_events_proto_depIdxs = []int32{
-	2, // 0: control.v1.StreamEventsResponse.event:type_name -> control.v1.Event
-	5, // 1: control.v1.Event.at:type_name -> google.protobuf.Timestamp
-	3, // 2: control.v1.Event.snapshot_taken:type_name -> control.v1.AccountSnapshot
-	5, // 3: control.v1.AccountSnapshot.taken_at:type_name -> google.protobuf.Timestamp
-	4, // 4: control.v1.AccountSnapshot.balances:type_name -> control.v1.Balance
-	0, // 5: control.v1.EventService.StreamEvents:input_type -> control.v1.StreamEventsRequest
-	1, // 6: control.v1.EventService.StreamEvents:output_type -> control.v1.StreamEventsResponse
-	6, // [6:7] is the sub-list for method output_type
-	5, // [5:6] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	3,  // 0: control.v1.StreamEventsResponse.event:type_name -> control.v1.Event
+	9,  // 1: control.v1.Event.at:type_name -> google.protobuf.Timestamp
+	7,  // 2: control.v1.Event.snapshot_taken:type_name -> control.v1.AccountSnapshot
+	4,  // 3: control.v1.Event.order_updated:type_name -> control.v1.OrderUpdated
+	5,  // 4: control.v1.Event.order_filled:type_name -> control.v1.OrderFilled
+	6,  // 5: control.v1.Event.reconcile_diff:type_name -> control.v1.ReconcileDiff
+	10, // 6: control.v1.OrderUpdated.status:type_name -> control.v1.OrderStatus
+	10, // 7: control.v1.OrderFilled.status:type_name -> control.v1.OrderStatus
+	0,  // 8: control.v1.ReconcileDiff.kind:type_name -> control.v1.ReconcileDiffKind
+	9,  // 9: control.v1.AccountSnapshot.taken_at:type_name -> google.protobuf.Timestamp
+	8,  // 10: control.v1.AccountSnapshot.balances:type_name -> control.v1.Balance
+	1,  // 11: control.v1.EventService.StreamEvents:input_type -> control.v1.StreamEventsRequest
+	2,  // 12: control.v1.EventService.StreamEvents:output_type -> control.v1.StreamEventsResponse
+	12, // [12:13] is the sub-list for method output_type
+	11, // [11:12] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_control_v1_events_proto_init() }
@@ -406,21 +811,26 @@ func file_control_v1_events_proto_init() {
 	if File_control_v1_events_proto != nil {
 		return
 	}
+	file_control_v1_orders_proto_init()
 	file_control_v1_events_proto_msgTypes[2].OneofWrappers = []any{
 		(*Event_SnapshotTaken)(nil),
+		(*Event_OrderUpdated)(nil),
+		(*Event_OrderFilled)(nil),
+		(*Event_ReconcileDiff)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_control_v1_events_proto_rawDesc), len(file_control_v1_events_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   5,
+			NumEnums:      1,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_control_v1_events_proto_goTypes,
 		DependencyIndexes: file_control_v1_events_proto_depIdxs,
+		EnumInfos:         file_control_v1_events_proto_enumTypes,
 		MessageInfos:      file_control_v1_events_proto_msgTypes,
 	}.Build()
 	File_control_v1_events_proto = out.File

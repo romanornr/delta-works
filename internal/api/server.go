@@ -23,16 +23,18 @@ const readHeaderTimeout = 5 * time.Second
 // NewServer builds the control-plane HTTP server. It does not start it;
 // lifecycle is managed by the application (fx hooks). No write timeout is
 // set because event streams stay open indefinitely.
-func NewServer(snapshots *SnapshotServer, events *EventServer) *http.Server {
+func NewServer(snapshots *SnapshotServer, events *EventServer, orders *OrderServer) *http.Server {
 	interceptors := connect.WithInterceptors(validate.NewInterceptor())
 
 	mux := http.NewServeMux()
 	mux.Handle(controlv1connect.NewSnapshotServiceHandler(snapshots, interceptors))
 	mux.Handle(controlv1connect.NewEventServiceHandler(events, interceptors))
+	mux.Handle(controlv1connect.NewOrderServiceHandler(orders, interceptors))
 
 	services := []string{
 		controlv1connect.SnapshotServiceName,
 		controlv1connect.EventServiceName,
+		controlv1connect.OrderServiceName,
 	}
 	mux.Handle(grpchealth.NewHandler(grpchealth.NewStaticChecker(services...)))
 	reflector := grpcreflect.NewStaticReflector(services...)

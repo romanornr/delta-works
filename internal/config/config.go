@@ -24,6 +24,7 @@ type Config struct {
 	Snapshot  Snapshot         `koanf:"snapshot"`
 	Outbox    Outbox           `koanf:"outbox"`
 	Reconcile Reconcile        `koanf:"reconcile"`
+	Order     Order            `koanf:"order"`
 	Venues    map[string]Venue `koanf:"venues"`
 }
 
@@ -72,11 +73,18 @@ type Reconcile struct {
 	Interval time.Duration `koanf:"interval"`
 }
 
+// Order configures venue order submission retries. SubmitBudget bounds one
+// invocation's venue-submit retries, not the end-to-end RPC duration.
+type Order struct {
+	SubmitBudget time.Duration `koanf:"submit_budget"`
+}
+
 // Venue configures one exchange connection. Each credential is either a
 // direct value or a path to a secret file, not both. Files carry multiline
 // secrets such as PEM keys (ADR-0006).
 type Venue struct {
 	Enabled       bool     `koanf:"enabled"`
+	Trading       bool     `koanf:"trading"`
 	Accounts      []string `koanf:"accounts"`
 	Rate          Rate     `koanf:"rate"`
 	APIKey        string   `koanf:"api_key"`
@@ -120,6 +128,9 @@ func (c Config) Validate() error {
 	if c.Reconcile.Interval < 5*time.Second || c.Reconcile.Interval > 5*time.Minute {
 		errs = append(errs, fmt.Errorf("reconcile.interval %s: must be between 5s and 5m", c.Reconcile.Interval))
 	}
+	if c.Order.SubmitBudget < time.Second || c.Order.SubmitBudget > time.Minute {
+		errs = append(errs, fmt.Errorf("order.submit_budget %s: must be between 1s and 1m", c.Order.SubmitBudget))
+	}
 	if c.Postgres.DSN == "" {
 		errs = append(errs, errors.New("postgres.dsn: must not be empty"))
 	}
@@ -127,6 +138,9 @@ func (c Config) Validate() error {
 		errs = append(errs, errors.New("questdb.conf: must not be empty"))
 	}
 	for name, v := range c.Venues {
+		if v.Trading && !v.Enabled {
+			errs = append(errs, fmt.Errorf("venues.%s.trading: requires enabled=true", name))
+		}
 		errs = append(errs, v.validate(name)...)
 	}
 	return errors.Join(errs...)

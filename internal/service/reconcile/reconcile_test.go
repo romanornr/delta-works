@@ -85,7 +85,11 @@ type fakeStore struct {
 	applied    []appliedEvent
 }
 
-func (*fakeStore) CreatePending(context.Context, domain.Request) error { return nil }
+func (*fakeStore) CreatePending(context.Context, domain.Request) (bool, error) { return true, nil }
+
+func (*fakeStore) ListOrders(context.Context, ports.OrderFilter) ([]ports.StoredOrder, error) {
+	return nil, nil
+}
 
 func (f *fakeStore) ApplyEvent(_ context.Context, source domain.Source, event domain.Event) (domain.Decision, ports.LedgerNote, error) {
 	f.mu.Lock()

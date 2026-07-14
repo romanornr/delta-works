@@ -181,7 +181,7 @@ Submit failure handling, walked through:
 3. The duplicate-error response carries no venue order ID, so the order stays `pending` locally until the next stream event or reconcile pass supplies one, matched on the client order ID the venue echoes back on every event.
 4. All retries exhausted and still no answer: the order stays `pending` and the caller is told the submit is unsettled. Reconciliation takes over: it either finds the order on the venue and adopts it, or, after a grace window of twice the reconcile interval, marks it `rejected` with reason `submit-lost`. The grace window exists because a submit can succeed on the venue after our last retry gave up waiting.
 
-At the RPC layer, a supplied client order ID is a request idempotency key with teeth: retrying with the same ID and the same order parameters returns the existing order's current state; reusing an ID with *different* parameters is rejected outright, because silently submitting an order that disagrees with the stored row under the same key would corrupt the meaning of the key.
+At the RPC layer, a supplied client order ID is a request idempotency key with teeth. The ID identifies the immutable request: venue, pair, side, type, price, quantity, and bot. Reusing an ID with a different identity is rejected as `AlreadyExists` without submitting anything, because silently submitting an order that disagrees with the stored row under the same key would corrupt the meaning of the key. Reusing it with a matching identity returns the current stored state without a new submit once the row has advanced or carries a venue order ID; only a still-pending row without a venue ID re-enters the same-ULID submit path, which is exactly the designed recovery.
 
 ## The life of an order, end to end
 
@@ -314,11 +314,11 @@ Chosen for the alerts they enable, not for decoration:
 
 ## Storage
 
-Migrations `0002_orders`, `0003_outbox`, `0004_ledger` (goose, embedded, brand-neutral names). All money columns are `numeric` (ADR-0002).
+Migrations `0002_orders`, `0003_outbox`, `0004_ledger`, `0005_order_list` (goose, embedded, brand-neutral names). All money columns are `numeric` (ADR-0002).
 
 | Table | Purpose | Key columns and constraints |
 |---|---|---|
-| `orders` | current state, one row per order | `client_order_id` text PK; venue, base, quote, venue_symbol, side, type, price, qty, filled_qty, avg_fill_price, status, venue_order_id, bot_id, cancel_requested_at, reason, created_at, updated_at. Partial `UNIQUE(venue, venue_order_id)` where set; indexes `(venue, status)` and `(bot_id, created_at DESC)` |
+| `orders` | current state, one row per order | `client_order_id` text PK; venue, base, quote, venue_symbol, side, type, price, qty, filled_qty, avg_fill_price, status, venue_order_id, bot_id, cancel_requested_at, reason, created_at, updated_at. Partial `UNIQUE(venue, venue_order_id)` where set; indexes `(venue, status)`, `(bot_id, created_at DESC)`, and `(created_at DESC, client_order_id DESC)` for list pagination keysets |
 | `order_transitions` | append-only audit trail | identity PK, FK to orders, `seq` with `UNIQUE(client_order_id, seq)`, from/to status, cumulative filled_qty, source `CHECK (source IN ('local','stream','ack','reconcile'))`, reason, occurred_at, recorded_at |
 | `fills` | one row per fill delta | identity PK, order + transition FKs, qty (delta), price, fee, fee_currency, venue_fill_id (partial unique), occurred_at |
 | `outbox` | ADR-0008 event queue | identity PK, subject, payload jsonb, created_at, published_at NULL; partial index on unpublished rows |
@@ -331,8 +331,11 @@ QuestDB gains a `fills` series (symbols: venue, symbol, side, bot; doubles: qty,
 ## Control plane
 
 - `proto/control/v1/orders.proto`: `OrderService` with `PlaceOrder`, `CancelOrder`, `ListOrders`. Validation lives in the schema as protovalidate rules and runs in an interceptor before any handler. Decimals cross the wire as strings, never floats (ADR-0007 explains why protobuf's `double` is disqualified for money). The wire package stays `control.v1`, brand-neutral.
-- The existing `Event` oneof gains append-only arms: `order_updated = 11`, `order_filled = 12`, `reconcile_diff = 13`. Arm numbers are never reused.
+- `PlaceOrder` accepts venue, base, quote, side, type, decimal-string quantity and price, and an optional client order ID; its response carries the ID, the current stored status, and whether the submission remains unsettled. `CancelOrder` takes the client order ID and returns the current status. `ListOrders` filters by venue, status, and bot with a filter-bound keyset page token, so a token replayed against different filters is rejected instead of producing silently wrong pages.
+- API errors are classified once, at the boundary: malformed requests and tokens are `InvalidArgument`; unknown orders are `NotFound`; terminal cancellation and venues without trading are `FailedPrecondition`; client-order-ID identity conflicts are `AlreadyExists`; authentication failures are `PermissionDenied`; venue outages are `Unavailable`; context cancellation and deadlines keep their own codes; everything else is a sanitized `Internal`. Handlers never parse error strings.
+- The existing `Event` oneof gains append-only arms: `order_updated = 11`, `order_filled = 12`, `reconcile_diff = 13`. Arm numbers are never reused. These are lean public payloads carrying order identity and state or fill facts; the internal outbox JSON is not a wire contract and may change freely.
 - `deltactl order place|cancel|list` speak these RPCs, and they are the only way to place an order until M3 (ADR-0007: no client bypasses the API).
+- Lifecycle: hooks start telemetry, the outbox relay, reconciliation, private order streaming, then the API, and stop in reverse order, so the API never accepts an order while the machinery behind it is still assembling. Order streaming waits for reconciliation to install its reconnect subscription first. A private stream that cannot start stays in its 30-second retry loop without blocking readiness; reconciliation-only operation is degraded but functional, and visible through `reconcile_last_success_timestamp_seconds`.
 
 ## Verification
 

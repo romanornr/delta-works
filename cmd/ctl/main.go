@@ -27,6 +27,7 @@ commands:
   snapshot <venue> <account>   print the last snapshot checkpoint
   events [-prefix p]           stream bus events as JSON lines
   watch                        live balances view (q to quit)
+  order place|cancel|list      place, cancel, or list orders
 
 The address is resolved from -addr, then ` + addrEnv + `, then api.addr in
 the config file, in the same forms the daemon accepts:
@@ -37,6 +38,7 @@ unix:///path/to.sock or host:port.
 type clients struct {
 	snapshots controlv1connect.SnapshotServiceClient
 	events    controlv1connect.EventServiceClient
+	orders    controlv1connect.OrderServiceClient
 }
 
 func main() {
@@ -75,6 +77,7 @@ func run(args []string) error {
 	c := clients{
 		snapshots: controlv1connect.NewSnapshotServiceClient(httpClient, baseURL),
 		events:    controlv1connect.NewEventServiceClient(httpClient, baseURL),
+		orders:    controlv1connect.NewOrderServiceClient(httpClient, baseURL),
 	}
 
 	ctx := context.Background()
@@ -86,6 +89,8 @@ func run(args []string) error {
 		return runEvents(ctx, c, rest)
 	case "watch":
 		return runWatch(ctx, c)
+	case "order":
+		return runOrder(ctx, c, rest)
 	default:
 		flags.Usage()
 		return fmt.Errorf("unknown command %q", cmd)

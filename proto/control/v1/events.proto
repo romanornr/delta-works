@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package control.v1;
 
+import "control/v1/orders.proto";
 import "google/protobuf/timestamp.proto";
 
 // EventService streams the daemon's event bus to clients.
@@ -28,7 +29,44 @@ message Event {
   google.protobuf.Timestamp at = 2;
   oneof payload {
     AccountSnapshot snapshot_taken = 10;
+    OrderUpdated order_updated = 11;
+    OrderFilled order_filled = 12;
+    ReconcileDiff reconcile_diff = 13;
   }
+}
+
+message OrderUpdated {
+  string client_order_id = 1;
+  string venue = 2;
+  string base = 3;
+  string quote = 4;
+  OrderStatus status = 5;
+  string filled_qty = 6;
+}
+
+message OrderFilled {
+  string client_order_id = 1;
+  string venue = 2;
+  string base = 3;
+  string quote = 4;
+  OrderStatus status = 5;
+  string filled_qty = 6;
+  string qty = 7;
+  string price = 8;
+}
+
+enum ReconcileDiffKind {
+  RECONCILE_DIFF_KIND_UNSPECIFIED = 0;
+  RECONCILE_DIFF_KIND_ORPHAN = 1;
+}
+
+message ReconcileDiff {
+  ReconcileDiffKind kind = 1;
+  string venue = 2;
+  string venue_order_id = 3;
+  string client_order_id = 4;
+  string base = 5;
+  string quote = 6;
 }
 
 // AccountSnapshot is a point-in-time view of one account's balances.
