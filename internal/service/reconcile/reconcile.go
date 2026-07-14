@@ -1,5 +1,5 @@
 // Package reconcile converges venue and local order state according to the
-// reconciliation rules in docs/specs/m2-oms.md.
+// reconciliation rules in docs/specs/manual-trading.md.
 package reconcile
 
 import (
@@ -21,7 +21,7 @@ import (
 )
 
 // SubjectOrphan is published when a venue reports an open order we do not
-// know. Orphans are never adopted (docs/specs/m2-oms.md).
+// know. Orphans are never adopted (docs/specs/manual-trading.md).
 const SubjectOrphan = "reconcile.orphan"
 
 // OrphanPayload is the bus payload for SubjectOrphan.

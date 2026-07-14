@@ -21,9 +21,9 @@ import (
 	"github.com/romanornr/delta-works/internal/ports"
 )
 
-// OrderStore persists orders per the M2 state machine. ApplyEvent is the
+// OrderStore persists orders per the order state machine. ApplyEvent is the
 // single write path for venue events: transition row, fill row and outbox
-// rows commit atomically (docs/specs/m2-oms.md, ADR-0008).
+// rows commit atomically (docs/specs/manual-trading.md, ADR-0008).
 type OrderStore struct {
 	pool     *pgxpool.Pool
 	q        *sqlcgen.Queries
@@ -317,7 +317,7 @@ func storedOrder(row sqlcgen.Order) ports.StoredOrder {
 		BotID:         row.BotID,
 		Instrument: instrument.Instrument{
 			Venue: instrument.VenueID(row.Venue),
-			// Only spot trades in M2; an instrument type column arrives
+			// Only spot trades today; an instrument type column arrives
 			// with derivatives.
 			Type:        instrument.TypeSpot,
 			Base:        money.Currency(row.Base),

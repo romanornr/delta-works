@@ -1,6 +1,5 @@
-// Package order holds the minimal order model. M1 compiles these types to
-// lock the trading seam (ports.OrderPlacer); the full state machine,
-// validation against instrument.Rules, and persistence arrive in M2.
+// Package order holds the order model and the state machine that
+// constrains its transitions (docs/specs/manual-trading.md).
 package order
 
 import (
@@ -38,7 +37,7 @@ const (
 // Status of an order at a venue.
 type Status string
 
-// Order statuses (the M2 state machine constrains transitions).
+// Order statuses (the state machine constrains transitions).
 const (
 	StatusPending         Status = "pending"
 	StatusOpen            Status = "open"

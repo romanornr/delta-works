@@ -4,7 +4,7 @@
 
 ## Background: what a control plane is and why this daemon needs one
 
-The daemon is long-running and headless: it holds the exchange connections, the database pools, and (from M2) the only path that places orders. Humans and tools need a way to talk to it: a CLI today, a TUI when grid bots arrive (M3), a web UI later (M4). The management surface those clients share is called the control plane, and it has three jobs that pull on the protocol choice:
+The daemon is long-running and headless: it holds the exchange connections, the database pools, and (since manual trading) the only path that places orders. Humans and tools need a way to talk to it: a CLI today, a TUI when grid bots arrive, a web UI later. The management surface those clients share is called the control plane, and it has three jobs that pull on the protocol choice:
 
 1. Typed queries: "list orders", "show the latest snapshot", with real field types, not stringly JSON both sides hope matches.
 2. Commands that move real money: place order, cancel order. These need schema-enforced validation and contracts that cannot silently drift between daemon and client.
@@ -55,7 +55,7 @@ message PlaceOrderRequest {
 }
 ```
 
-  A request violating a rule is rejected with `InvalidArgument` and the exact constraint that failed, before a single line of handler code runs. The rules travel with the schema, so the generated TypeScript client of M4 inherits them for free.
+  A request violating a rule is rejected with `InvalidArgument` and the exact constraint that failed, before a single line of handler code runs. The rules travel with the schema, so the future web UI's generated TypeScript client inherits them for free.
 - Event streaming is a server-streaming RPC fed by the internal bus, and it inherits the bus's at-most-once contract (ADR-0005): a slow client drops events rather than stalling the daemon. Anything that must not be lost is read back from Postgres (ADR-0004).
 - Money crosses the wire as decimal strings, never floats (ADR-0002, ADR-0004). Protobuf's `double` is IEEE 754 with the same defects as float64.
 
@@ -64,4 +64,4 @@ message PlaceOrderRequest {
 - buf joins sqlc in `make generate`; `buf lint` and `buf breaking` run in `make ci`. Contract drift between daemon and clients is a build failure, not a support ticket.
 - New event types are added as `oneof` arms in the `Event` envelope. Arm numbers are append-only and never reused, because a recycled field number silently misparses old clients.
 - When NATS replaces the in-process bus (ADR-0005), the API server becomes a NATS subscriber; clients notice nothing.
-- The M4 web UI generates TypeScript from the same protos and connects directly; cors-go is added only if it is ever served cross-origin.
+- The future web UI generates TypeScript from the same protos and connects directly; cors-go is added only if it is ever served cross-origin.

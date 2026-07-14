@@ -5,7 +5,7 @@ package gct
 // the float64 value received but cannot restore precision the venue lost
 // upstream. That is acceptable for market data and balance observations.
 // Accounting truth (orders, fills, ledger) will come from venue-reported
-// strings in M2, never through float64.
+// strings, never through float64.
 
 import (
 	"fmt"

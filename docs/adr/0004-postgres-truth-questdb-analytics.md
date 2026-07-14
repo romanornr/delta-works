@@ -41,14 +41,14 @@ To feel why the rule is not pedantry, walk one violation: suppose fills were sto
 
 ### The checkpoint pattern that connects them
 
-M1 keeps Postgres nearly empty on purpose: one table, `snapshot_checkpoints`, recording that a balance snapshot durably reached QuestDB. This solves a real problem that at-least-once ingestion creates: how do you know whether data actually arrived? The write ordering is what makes the checkpoint meaningful:
+The account-watch milestone keeps Postgres nearly empty on purpose: one table, `snapshot_checkpoints`, recording that a balance snapshot durably reached QuestDB. This solves a real problem that at-least-once ingestion creates: how do you know whether data actually arrived? The write ordering is what makes the checkpoint meaningful:
 
 1. Write the snapshot rows to QuestDB and call `Flush`, which blocks until the server has accepted them.
 2. Only then write the Postgres checkpoint row.
 
-A checkpoint therefore asserts "this snapshot is in QuestDB". If the process dies between the two steps, the worst case is data in QuestDB with no checkpoint, which shows up as a gap to reconcile, never as a checkpoint pointing at missing data. The general shape (durable record in the truth store, written only after the lossy store confirmed) reappears in M2 as the transactional outbox (ADR-0008).
+A checkpoint therefore asserts "this snapshot is in QuestDB". If the process dies between the two steps, the worst case is data in QuestDB with no checkpoint, which shows up as a gap to reconcile, never as a checkpoint pointing at missing data. The general shape (durable record in the truth store, written only after the lossy store confirmed) reappears in manual trading as the transactional outbox (ADR-0008).
 
-The M1 table also served a second purpose: it forced the whole goose + sqlc + testcontainers pipeline to exist and be proven before M2's orders, fills, and ledger arrived with real stakes.
+The checkpoint table also served a second purpose: it forced the whole goose + sqlc + testcontainers pipeline to exist and be proven before the orders, fills, and ledger tables arrived with real stakes.
 
 ## Consequences
 

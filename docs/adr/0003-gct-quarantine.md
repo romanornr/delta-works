@@ -30,7 +30,7 @@ Services depend on ports. The adapter depends on the ports and on GCT. GCT is de
 
 ## Decision
 
-- All application code depends only on the interfaces in `internal/ports` (`Exchange`, `MarketDataReader`, `AccountReader`, and from M2 also `OrderPlacer` and `PrivateStreamer`), using pure domain types.
+- All application code depends only on the interfaces in `internal/ports` (`Exchange`, `MarketDataReader`, `AccountReader`, and since manual trading also `OrderPlacer` and `PrivateStreamer`), using pure domain types.
 - GCT is imported only inside `internal/adapters/gct/`. This is enforced mechanically by a depguard rule in `.golangci.yml`, so an accidental import elsewhere fails `make lint` and CI. Boundaries kept by convention erode; boundaries kept by a linter do not.
 - The adapter boots a trimmed GCT engine: the exchange manager only, with GCT's web UI, database, and comms subsystems disabled. It runs under the fx lifecycle like every other component.
 - `convert.go` is the single place where GCT types and domain types meet, and it is tested heavily. This is also where GCT's float64 amounts are converted to `shopspring/decimal` (ADR-0002): float enters at the boundary and does not travel further.

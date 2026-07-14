@@ -21,7 +21,7 @@ const connectionPollInterval = 5 * time.Second
 // Streamer implements ports.PrivateStreamer over a GCT exchange's
 // websocket. GCT reconnects on its own; onReconnect fires after every
 // observed reconnect so the caller can publish stream.reconnected and
-// close the event gap via reconciliation (docs/specs/m2-oms.md).
+// close the event gap via reconciliation (docs/specs/manual-trading.md).
 type Streamer struct {
 	ex          *Exchange
 	onReconnect func()

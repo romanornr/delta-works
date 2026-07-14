@@ -17,7 +17,7 @@ var _ ports.OrderPlacer = (*Exchange)(nil)
 
 // PlaceOrder implements ports.OrderPlacer. The ClientOrderID rides to the
 // venue as the idempotency key; the caller has already persisted the
-// pending row (docs/specs/m2-oms.md).
+// pending row (docs/specs/manual-trading.md).
 func (e *Exchange) PlaceOrder(ctx context.Context, req order.Request) (order.Ack, error) {
 	submit, err := toGCTSubmit(e.exch.GetName(), e.exch, req)
 	if err != nil {

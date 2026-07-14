@@ -1,25 +1,25 @@
 # Roadmap
 
-The long-term goal is a serious multi-exchange trading platform, not a portfolio tracker. Milestones build on each other, and later items are written down now for one specific reason: early design decisions must not paint them into a corner. Several current architecture choices (the selector interface in the ledger, the NATS-shaped bus, the time-series ingestion discipline) exist because a later milestone on this page needs them.
+The long-term goal is a serious multi-exchange trading platform, not a portfolio tracker. Milestones are named for the capability the operator gains, they build on each other in the order below, and later items are written down now for one specific reason: early design decisions must not paint them into a corner. Several current architecture choices (the selector interface in the ledger, the NATS-shaped bus, the time-series ingestion discipline) exist because a later milestone on this page needs them.
 
-## M1: Foundation + read-only exchange (delivered)
+## Account watch (delivered)
 
-A daemon that snapshots exchange balances into QuestDB every minute and records durable checkpoints in Postgres. Modest by design: the milestone exists to force all the engineering infrastructure into existence (lint and CI, config, logging, dependency injection, migrations, generated SQL, integration tests against real databases, metrics, graceful shutdown, the exchange adapter and its resilience stack) against a problem that cannot lose money. Spec: [specs/m1-foundation.md](specs/m1-foundation.md).
+A daemon that snapshots exchange balances into QuestDB every minute and records durable checkpoints in Postgres. Modest by design: the milestone exists to force all the engineering infrastructure into existence (lint and CI, config, logging, dependency injection, migrations, generated SQL, integration tests against real databases, metrics, graceful shutdown, the exchange adapter and its resilience stack) against a problem that cannot lose money. Spec: [specs/account-watch.md](specs/account-watch.md).
 
-## M2: Order management (current)
+## Manual trading (code complete; live verification pending)
 
-The machinery that places orders and accounts for what happens to them. A pure order state machine where every transition is persisted, ULID client order IDs as idempotency keys so retries can never create duplicate orders, private order-event streaming per venue, a reconciliation loop that periodically converges local state with venue state, a per-bot inventory ledger built from lots, and a transactional outbox so no order event is ever lost between the database and the rest of the system. Orders enter only through the typed control-plane API and its `deltactl order` commands. Spec: [specs/m2-oms.md](specs/m2-oms.md).
+The machinery that places orders and accounts for what happens to them. A pure order state machine where every transition is persisted, ULID client order IDs as idempotency keys so retries can never create duplicate orders, private order-event streaming per venue, a reconciliation loop that periodically converges local state with venue state, a per-bot inventory ledger built from lots, and a transactional outbox so no order event is ever lost between the database and the rest of the system. Orders enter only through the typed control-plane API and its `deltactl order` commands. Spec: [specs/manual-trading.md](specs/manual-trading.md).
 
-## M3: Grid bots
+## Grid bots
 
 A grid bot places a ladder of buy orders below the price and sell orders above it, profiting when the price oscillates across levels. This milestone runs multiple grid bots concurrently, each as an actor goroutine controlled through mailbox commands: pause, resume, stop individually.
 
-Two design problems dominate, and both have their foundations laid in M2:
+Two design problems dominate, and both have their foundations laid in the manual-trading milestone:
 
 - **Live limit adjustment as a validated transaction.** Changing a running bot's price range means computing the new order ladder, diffing it against the open orders and lots that already exist, checking the buy side against free quote cash and the sell side against actual inventory (with reservations so two bots cannot claim the same funds), and then cancelling and replacing only the delta. Replacing only the delta is what keeps profit history intact.
-- **Exact profit attribution by construction.** A sell fill pairs with the lot bought one grid level below it. That pairing is just another `LotSelector` implementation (the interface M2's ledger ships with FIFO), and it splits profit cleanly in two: realized grid-cycle profit from paired lots, and price-movement profit from unmatched inventory marked to market against lot cost. No estimation, no averaging: every profit number traces to specific fills.
+- **Exact profit attribution by construction.** A sell fill pairs with the lot bought one grid level below it. That pairing is just another `LotSelector` implementation (the interface the ledger already ships with FIFO), and it splits profit cleanly in two: realized grid-cycle profit from paired lots, and price-movement profit from unmatched inventory marked to market against lot cost. No estimation, no averaging: every profit number traces to specific fills.
 
-## M4 and beyond: execution and cross-venue
+## Execution and cross-venue
 
 - Cross-exchange arbitrage: a strategy holding two venue registry entries and trading the spread between them.
 - Execution algorithms as parent/child order slicers feeding the same order management core: TWAP and VWAP (time- and volume-weighted slicing of a large order), iceberg (show a sliver, hide the size), adaptive and pegged variants, scaling entries, pair trades, delta hedging.

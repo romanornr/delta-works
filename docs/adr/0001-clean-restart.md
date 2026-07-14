@@ -46,5 +46,5 @@ Reading is encouraged; `git checkout legacy-final -- path/` into the working tre
 ## Consequences
 
 - Every pattern in this repository is a decision someone made on purpose, and the significant ones have an ADR. A reader never has to wonder whether something is intentional or archaeological.
-- The cost: early milestones rebuild things the legacy code already had (exchange connectivity, config, storage). The bet is that rebuilding on clean seams is cheaper than dragging the old coupling forward. M1 and M2 are the test of that bet.
+- The cost: early milestones rebuild things the legacy code already had (exchange connectivity, config, storage). The bet is that rebuilding on clean seams is cheaper than dragging the old coupling forward. The first two milestones, account watch and manual trading, are the test of that bet.
 - Old code remains one `git checkout` away if a specific behavior ever needs to be consulted.

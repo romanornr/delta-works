@@ -20,7 +20,7 @@ This is a long-lived multi-exchange trading platform (see [ROADMAP.md](../ROADMA
 | Metrics | Prometheus client_golang + Grafana | standard pull-based observability |
 | Resilience | x/time/rate, gobreaker/v2, cenkalti/backoff/v5 (layering in ADR-0003) | venue protection independent of GCT internals |
 | Messaging | in-process bus, NATS-shaped (ADR-0005) | defer infrastructure until a second process exists |
-| HTTP | stdlib net/http, Go 1.22+ ServeMux | three endpoints in M1; handlers stay stdlib-compatible if chi is ever wanted |
+| HTTP | stdlib net/http, Go 1.22+ ServeMux | three telemetry endpoints; handlers stay stdlib-compatible if chi is ever wanted |
 | WebSocket | coder/websocket (when native adapters arrive) | maintained successor to nhooyr; preferred over gorilla for new code |
 | Concurrency | context + errgroup; one actor goroutine per bot later | cancellation-first design |
 | Testing | testcontainers-go for Postgres/QuestDB; `-race -shuffle=on` always | see below |
@@ -54,7 +54,7 @@ An ORM generates SQL from Go code at runtime. sqlc does the reverse: you write r
 | When a query is wrong | at runtime, in production if untested | at code generation or compile time |
 | Query tuning (indexes, EXPLAIN) | fight the generator | ordinary SQL work |
 
-For a system whose correctness lives in its queries (row locking, `ON CONFLICT` idempotency, partial indexes, advisory locks in M2), hiding the SQL is the wrong direction. sqlc keeps the SQL visible and reviewable while removing the hand-written scanning boilerplate where mistakes hide. goose handles schema migrations as plain SQL files embedded in the binary, applied in order at startup.
+For a system whose correctness lives in its queries (row locking, `ON CONFLICT` idempotency, partial indexes, advisory locks in the ledger), hiding the SQL is the wrong direction. sqlc keeps the SQL visible and reviewable while removing the hand-written scanning boilerplate where mistakes hide. goose handles schema migrations as plain SQL files embedded in the binary, applied in order at startup.
 
 ## How configuration actually flows (koanf)
 
@@ -83,7 +83,7 @@ Everything lands in one typed `Config` struct, and `Validate()` runs at startup 
 fx wires the application together from constructors: each component declares what it needs as parameters and fx builds the graph, then starts lifecycle hooks in dependency order and stops them in reverse. Two things justify the dependency over hand-wiring in `main()`:
 
 1. Ordered shutdown. A trading daemon must stop accepting API calls before it stops the services behind them, and must keep the database pool alive until every service using it has returned. Reverse-order lifecycle hooks give that for free; hand-written shutdown ordering is where subtle bugs live.
-2. Wiring tests. Because construction is data (a list of constructors), a test can build the whole application graph with a fake venue and assert properties like "with trading disabled, no private websocket component is even constructed" (this becomes real in M2).
+2. Wiring tests. Because construction is data (a list of constructors), a test can build the whole application graph with a fake venue and assert properties like "with trading disabled, no private websocket component is even constructed" (a real test since manual trading).
 
 ## Why testcontainers and those test flags
 

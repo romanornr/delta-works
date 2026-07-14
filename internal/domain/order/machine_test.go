@@ -19,7 +19,7 @@ var allStatuses = []order.Status{
 	order.StatusExpired,
 }
 
-// applies encodes the spec's transition table (docs/specs/m2-oms.md) as
+// applies encodes the spec's transition table (docs/specs/manual-trading.md) as
 // literal data: true means the event's status is applied when it brings a
 // new cumulative fill or the drop rule does not fire. It is written out
 // per pair, not derived, so the test is independent of the implementation.

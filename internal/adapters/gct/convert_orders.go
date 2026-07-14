@@ -82,7 +82,7 @@ func toGCTType(t order.Type) (gctorder.Type, error) {
 
 // toStatus maps every GCT status onto the domain state machine. Cancel-in-
 // flight statuses map to open because cancel is an intent, not a state
-// (docs/specs/m2-oms.md); forced closes (liquidation, ADL) map to canceled.
+// (docs/specs/manual-trading.md); forced closes (liquidation, ADL) map to canceled.
 func toStatus(s gctorder.Status) (order.Status, error) {
 	switch s {
 	case gctorder.Pending:

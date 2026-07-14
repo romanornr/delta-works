@@ -4,14 +4,14 @@ A multi-exchange cryptocurrency trading platform in Go, built to run real money 
 
 ## What this is
 
-One long-running daemon (`deltad`) connects to cryptocurrency exchanges, and a CLI (`deltactl`) controls it over a typed API. The project is built milestone by milestone, and each milestone is specified before it is implemented:
+One long-running daemon (`deltad`) connects to cryptocurrency exchanges, and a CLI (`deltactl`) controls it over a typed API. The project is built milestone by milestone, each named for what the operator can do once it ships, and each specified before it is implemented:
 
 | Milestone | What it delivers | Status |
 |---|---|---|
-| M1 | the engineering foundation plus a read-only daemon: balance snapshots into a time-series database, durable checkpoints, metrics, health, graceful shutdown | delivered |
-| M2 | order management: a persisted order state machine, private event streams, a reconciliation loop, a per-bot inventory ledger with exact cost basis | in progress, final slice |
-| M3 | concurrent grid trading bots with exact profit attribution | next |
-| M4+ | execution algorithms, cross-venue strategies, a web UI | planned |
+| Account watch | the engineering foundation plus a read-only daemon: balance snapshots into a time-series database, durable checkpoints, metrics, health, graceful shutdown | delivered |
+| Manual trading | order placement through the CLI: a persisted order state machine, private event streams, a reconciliation loop, a per-bot inventory ledger with exact cost basis | code complete; live verification pending |
+| Grid bots | concurrent grid trading bots with exact profit attribution | next |
+| Execution and cross-venue | execution algorithms, cross-venue strategies, a web UI | planned |
 
 The full plan with reasoning is in [docs/ROADMAP.md](docs/ROADMAP.md).
 

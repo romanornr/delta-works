@@ -1,5 +1,5 @@
 // Package order orchestrates order placement, cancellation and venue event
-// application per the M2 state machine (docs/specs/m2-oms.md). The pending
+// application per the order state machine (docs/specs/manual-trading.md). The pending
 // row is persisted before the venue submit; venue events reach Postgres
 // through OrderStore.ApplyEvent, which also feeds the outbox (ADR-0008).
 package order

@@ -6,7 +6,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// The state machine is specified in docs/specs/m2-oms.md. Statuses have a
+// The state machine is specified in docs/specs/manual-trading.md. Statuses have a
 // rank used as a monotonic guard against stale or reordered venue events;
 // all terminal statuses share the top rank because none can follow another.
 func rank(s Status) (int, error) {

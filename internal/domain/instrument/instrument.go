@@ -18,7 +18,7 @@ func NewVenueID(name string) VenueID {
 	return VenueID(strings.ToLower(strings.TrimSpace(name)))
 }
 
-// Type is the instrument class. Only spot exists in M1; futures/perps later.
+// Type is the instrument class. Only spot exists today; futures/perps later.
 type Type string
 
 // TypeSpot is the spot instrument class.
@@ -33,8 +33,8 @@ type Instrument struct {
 	// VenueSymbol is the venue's native symbol, e.g. "BTCUSDT". Adapters
 	// use it as the round-trip key when talking to the venue.
 	VenueSymbol string
-	// Rules are the venue's trading constraints. Optional in M1; required
-	// by order validation in M2.
+	// Rules are the venue's trading constraints. Optional for snapshots; required
+	// by order validation.
 	Rules Rules
 }
 

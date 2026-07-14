@@ -1,4 +1,4 @@
-# Spec: M2: Order management
+# Spec: Manual trading (order management)
 
 **Status:** accepted 2026-07-05, implementation in progress. This document is normative: implementations follow it, and changes to behavior change this file in the same PR.
 
@@ -19,13 +19,13 @@ Before reading the design, it helps to see exactly what goes wrong with the naiv
 | 5 | trust the stream to deliver everything | a dropped websocket silently loses events; local state diverges from the venue forever | the reconciliation loop |
 | 6 | track balances instead of positions | you know you own 0.5 BTC but not what you paid; profit is unknowable per bot | the lot ledger |
 
-M2 builds, in one milestone: the order state machine (2, 3), ID discipline (1), the outbox (4), reconciliation (5), and the ledger (6), plus the typed API through which orders enter. Orders enter the system only through the control plane, `OrderService` RPCs and their `deltactl order` commands (ADR-0007); trading bots become a second caller in M3.
+This milestone builds: the order state machine (2, 3), ID discipline (1), the outbox (4), reconciliation (5), and the ledger (6), plus the typed API through which orders enter. Orders enter the system only through the control plane, `OrderService` RPCs and their `deltactl order` commands (ADR-0007); trading bots become a second caller in the grid-bots milestone.
 
 The one idea underneath all of it: **the exchange is the authority on what happened, and our job is to converge on its view without ever losing or double-counting a fact.** Never fight the venue about execution facts; never trust any single delivery channel to be complete.
 
 ## Package layout
 
-Additions to the M1 tree:
+Additions to the account-watch tree:
 
 ```
 internal/id/                # ULID generation (oklog/ulid/v2, crypto/rand entropy)
@@ -262,7 +262,7 @@ type LotSelector interface {
 }
 ```
 
-M2 ships FIFO (oldest first, the standard accounting default). The interface exists for M3: a grid bot's sell should close the lot bought one grid level below, which is just another selector, and nothing else changes. Worked example:
+This milestone ships FIFO (oldest first, the standard accounting default). The interface exists for the grid bots: a grid bot's sell should close the lot bought one grid level below, which is just another selector, and nothing else changes. Worked example:
 
 | Event | Qty | Price | Ledger action |
 |---|---|---|---|
@@ -280,7 +280,7 @@ A sell fill can exceed open inventory (stream gap, manual trade outside the syst
 2. Close what matches, ignore the rest: hides the discrepancy forever.
 3. Close what matches, record the remainder in `unmatched_sells`, publish `ledger.unmatched_sell`, count it: the books stay factual and the anomaly is visible.
 
-Policy 3 is the rule. Unmatched remainders are never retro-matched when later buys arrive, because an unmatched sell is evidence that something upstream went wrong, and auto-healing would erase the evidence. M3's reservations prevent oversell before submission; this is the fallback for when reality disagrees.
+Policy 3 is the rule. Unmatched remainders are never retro-matched when later buys arrive, because an unmatched sell is evidence that something upstream went wrong, and auto-healing would erase the evidence. The grid-bots milestone adds reservations that prevent oversell before submission; this is the fallback for when reality disagrees.
 
 ### Concurrency and ordering
 
@@ -292,7 +292,7 @@ A consequence stated here so nobody discovers it as a surprise: matching order i
 
 ### Fees, honestly
 
-M2 lot cost basis is execution-price-only. Fees are recorded on fills but not allocated to lots, because fees come in three shapes with different inventory meanings: a quote-currency fee raises your effective cost, a base-currency fee reduces the inventory you actually received, and a third-currency fee (exchange tokens) needs an exchange rate to mean anything. A single cost-price column cannot express all three without a convention, and a half-convention silently wrong for one fee shape is worse than a documented absence. Fee-aware inventory and PnL land in M3. Until then, every fee is preserved on its fill row; nothing is lost, only unallocated.
+Lot cost basis is execution-price-only for now. Fees are recorded on fills but not allocated to lots, because fees come in three shapes with different inventory meanings: a quote-currency fee raises your effective cost, a base-currency fee reduces the inventory you actually received, and a third-currency fee (exchange tokens) needs an exchange rate to mean anything. A single cost-price column cannot express all three without a convention, and a half-convention silently wrong for one fee shape is worse than a documented absence. Fee-aware inventory and PnL land with the grid bots. Until then, every fee is preserved on its fill row; nothing is lost, only unallocated.
 
 ## Outbox
 
@@ -309,7 +309,7 @@ Chosen for the alerts they enable, not for decoration:
 | `outbox_published_total` | relay throughput | none; context for the others |
 | `reconcile_diffs_total{venue,kind}` | how often reconciliation repairs divergence, by kind | sustained `fill_anomaly` or `unmatched_sell` rate = investigate the venue feed |
 | `reconcile_duration_seconds{venue}` | reconcile pass cost | approaching the interval = passes overlapping |
-| `reconcile_last_success_timestamp_seconds{venue}` | is reconciliation alive | now − value > 3 intervals, same pattern as M1's snapshot staleness alert |
+| `reconcile_last_success_timestamp_seconds{venue}` | is reconciliation alive | now − value > 3 intervals, same pattern as the snapshot staleness alert |
 | `ledger_unmatched_sells_total{venue}` | oversells on the stream/ack path | any increase = look at the `unmatched_sells` table |
 
 ## Storage
@@ -334,7 +334,7 @@ QuestDB gains a `fills` series (symbols: venue, symbol, side, bot; doubles: qty,
 - `PlaceOrder` accepts venue, base, quote, side, type, decimal-string quantity and price, and an optional client order ID; its response carries the ID, the current stored status, and whether the submission remains unsettled. `CancelOrder` takes the client order ID and returns the current status. `ListOrders` filters by venue, status, and bot with a filter-bound keyset page token, so a token replayed against different filters is rejected instead of producing silently wrong pages.
 - API errors are classified once, at the boundary: malformed requests and tokens are `InvalidArgument`; unknown orders are `NotFound`; terminal cancellation and venues without trading are `FailedPrecondition`; client-order-ID identity conflicts are `AlreadyExists`; authentication failures are `PermissionDenied`; venue outages are `Unavailable`; context cancellation and deadlines keep their own codes; everything else is a sanitized `Internal`. Handlers never parse error strings.
 - The existing `Event` oneof gains append-only arms: `order_updated = 11`, `order_filled = 12`, `reconcile_diff = 13`. Arm numbers are never reused. These are lean public payloads carrying order identity and state or fill facts; the internal outbox JSON is not a wire contract and may change freely.
-- `deltactl order place|cancel|list` speak these RPCs, and they are the only way to place an order until M3 (ADR-0007: no client bypasses the API).
+- `deltactl order place|cancel|list` speak these RPCs, and they are the only way to place an order until the grid bots arrive (ADR-0007: no client bypasses the API).
 - Lifecycle: hooks start telemetry, the outbox relay, reconciliation, private order streaming, then the API, and stop in reverse order, so the API never accepts an order while the machinery behind it is still assembling. Order streaming waits for reconciliation to install its reconnect subscription first. A private stream that cannot start stays in its 30-second retry loop without blocking readiness; reconciliation-only operation is degraded but functional, and visible through `reconcile_last_success_timestamp_seconds`.
 
 ## Verification

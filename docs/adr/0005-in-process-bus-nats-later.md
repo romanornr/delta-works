@@ -4,11 +4,11 @@
 
 ## Background: why an event bus exists at all
 
-Components of this daemon need to react to each other. When a balance snapshot is taken, the API's event stream should show it. When a private websocket reconnects (M2), the reconciliation loop should run immediately instead of waiting for its next timer tick. The naive way to get this is direct calls: the snapshot service calls the API server, the stream adapter calls the reconciler. That couples every producer to every consumer; adding a consumer means editing the producer, and circular imports appear fast.
+Components of this daemon need to react to each other. When a balance snapshot is taken, the API's event stream should show it. When a private websocket reconnects, the reconciliation loop should run immediately instead of waiting for its next timer tick. The naive way to get this is direct calls: the snapshot service calls the API server, the stream adapter calls the reconciler. That couples every producer to every consumer; adding a consumer means editing the producer, and circular imports appear fast.
 
 A publish/subscribe bus inverts this. Producers publish an event under a subject string (`snapshot.taken`, `order.filled`, `stream.reconnected`) without knowing who listens. Consumers subscribe to subjects without knowing who publishes. The two sides only share the bus interface and the subject names.
 
-The real design question was not whether to have a bus, but which one. NATS (with its JetStream persistence layer) is the intended messaging system for the platform's future: it provides durable streams, work queues, and cross-process fan-out. But M1 and M2 are a single process. Running a NATS server next to a single-process daemon means operating, monitoring, securing, and upgrading a piece of infrastructure whose defining features (durability across restarts, delivery between processes) have zero consumers.
+The real design question was not whether to have a bus, but which one. NATS (with its JetStream persistence layer) is the intended messaging system for the platform's future: it provides durable streams, work queues, and cross-process fan-out. But everything up to and including manual trading is a single process. Running a NATS server next to a single-process daemon means operating, monitoring, securing, and upgrading a piece of infrastructure whose defining features (durability across restarts, delivery between processes) have zero consumers.
 
 ## Decision
 
@@ -19,11 +19,11 @@ Publish(ctx, Event) error                                  // Event: Subject str
 Subscribe(subjectPrefix string, handler Handler) (unsubscribe func(), err error)
 ```
 
-Subjects are dot-separated strings (`order.filled`), and subscription is by prefix, mirroring how NATS subject filtering is used here. The M1 implementation is in-process: a map of subscribers, each with its own goroutine and a bounded channel of 64 events.
+Subjects are dot-separated strings (`order.filled`), and subscription is by prefix, mirroring how NATS subject filtering is used here. The current implementation is in-process: a map of subscribers, each with its own goroutine and a bounded channel of 64 events.
 
 The one behavioral decision that everything downstream depends on: **publishing never blocks.** If a subscriber's buffer is full because it is slow, the event is dropped for that subscriber and the `bus_dropped_total` counter is incremented. The alternative (block the publisher until the subscriber catches up) would let one slow consumer stall the trading hot path, which is a worse failure than a missed notification.
 
-The consequence is stated as a contract: delivery is **at-most-once**. Any data that must not be lost does not travel as a bus payload; it is written to Postgres, and the bus event is merely a hint that something changed (ADR-0004 makes Postgres the truth; ADR-0008 builds the guaranteed path from Postgres commits onto the bus). A consumer that misses a hint catches up on its next read or its next timer tick. Every M2 consumer is built to this rule: the reconciler treats a missed `stream.reconnected` as "the next 30-second pass will cover it".
+The consequence is stated as a contract: delivery is **at-most-once**. Any data that must not be lost does not travel as a bus payload; it is written to Postgres, and the bus event is merely a hint that something changed (ADR-0004 makes Postgres the truth; ADR-0008 builds the guaranteed path from Postgres commits onto the bus). A consumer that misses a hint catches up on its next read or its next timer tick. Every consumer is built to this rule: the reconciler treats a missed `stream.reconnected` as "the next 30-second pass will cover it".
 
 What using it looks like, publisher and subscriber:
 

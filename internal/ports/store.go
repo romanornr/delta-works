@@ -96,8 +96,8 @@ type OrderFilter struct {
 	CursorID        *string
 }
 
-// OrderStore persists order state per the M2 state machine
-// (docs/specs/m2-oms.md). Every write goes through a transaction that
+// OrderStore persists order state per the order state machine
+// (docs/specs/manual-trading.md). Every write goes through a transaction that
 // also inserts the matching outbox rows (ADR-0008).
 type OrderStore interface {
 	// CreatePending inserts the order in status pending before the venue

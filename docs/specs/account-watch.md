@@ -1,14 +1,14 @@
-# Spec: M1: Foundation + read-only exchange
+# Spec: Account watch (foundation + read-only exchange)
 
 **Status:** delivered 2026-07-02, except live-key verification (running with real venue credentials and confirming balances flow into QuestDB), which needed API keys. Completed later with coinbase credentials.
 
-## What M1 is, and why the first milestone refuses to trade
+## What this milestone is, and why the first milestone refuses to trade
 
-M1 builds a daemon (`deltad`) that does one modest thing end to end: on a timer, ask each configured exchange for account balances, write them into the time-series database, and durably record that this happened. No orders, no trading, nothing that can lose money.
+Account watch builds a daemon (`deltad`) that does one modest thing end to end: on a timer, ask each configured exchange for account balances, write them into the time-series database, and durably record that this happened. No orders, no trading, nothing that can lose money.
 
-The modesty is a strategy. A trading system's first real order will depend on configuration loading, logging, database migrations, query generation, integration testing, metrics, health checks, graceful shutdown, exchange connectivity, and a resilience stack, all working at once. If those are built alongside the first order, every infrastructure bug costs money while you debug it. M1 forces every one of those pieces into existence against a problem where the worst possible bug is a wrong number on a chart. By the time M2 puts money on the line, the skeleton has been running in production conditions for weeks.
+The modesty is a strategy. A trading system's first real order will depend on configuration loading, logging, database migrations, query generation, integration testing, metrics, health checks, graceful shutdown, exchange connectivity, and a resilience stack, all working at once. If those are built alongside the first order, every infrastructure bug costs money while you debug it. This milestone forces every one of those pieces into existence against a problem where the worst possible bug is a wrong number on a chart. By the time manual trading puts money on the line, the skeleton has been running in production conditions for weeks.
 
-The second purpose is subtler: M1 locks the seams that M2 and M3 will need, before any pressure exists to cut corners on them. The trading interfaces were designed and compiled in M1 with no implementation behind them, the domain layer was kept free of infrastructure, and the two-database split was established while the data was still harmless.
+The second purpose is subtler: this milestone locks the seams that manual trading and the grid bots will need, before any pressure exists to cut corners on them. The trading interfaces were designed and compiled here with no implementation behind them, the domain layer was kept free of infrastructure, and the two-database split was established while the data was still harmless.
 
 ## One snapshot tick, end to end
 
@@ -34,7 +34,7 @@ The ordering of the last three steps is a rule, not a habit, and it teaches the 
 2. The Postgres checkpoint is written **after** the flush succeeds, so a checkpoint row is proof the data is in QuestDB. Write it before, and a crash between the two produces a checkpoint pointing at data that does not exist, which is a lie in the truth store. Written after, the worst crash outcome is data without a checkpoint: a visible gap, repairable, honest.
 3. The bus event goes out last because it is only a hint (ADR-0005: at-most-once, droppable); anything that must be reliable is already in a database by the time it is published.
 
-The same shape returns in M2 as the transactional outbox (ADR-0008): durable record first, notification derived from it.
+The same shape returns in manual trading as the transactional outbox (ADR-0008): durable record first, notification derived from it.
 
 ## Package layout
 
@@ -50,7 +50,7 @@ internal/domain/money/      # Currency, Amount (a decimal that refuses cross-cur
 internal/domain/instrument/ # VenueID, Instrument{Base,Quote,VenueSymbol,Rules}                    [pure]
 internal/domain/account/    # AccountType, AccountRef, Balance, Snapshot                           [pure]
 internal/domain/marketdata/ # Ticker                                                               [pure]
-internal/ports/             # the hexagon boundary: exchange ports + trading ports (M2 seam) + store ports
+internal/ports/             # the hexagon boundary: exchange ports + trading ports (the manual-trading seam) + store ports
 internal/adapters/gct/      # GCT engine lifecycle + port implementations; convert.go is the sole contact point
 internal/adapters/postgres/ # pgxpool, sqlc-generated queries, CheckpointStore, migrations/ (goose)
 internal/adapters/questdb/  # ILP LineSender wrapper implementing SeriesWriter
@@ -64,7 +64,7 @@ Three structural rules a contributor must know, all linter-enforced where possib
 
 - **Domain purity.** Production code under `internal/domain/` imports the standard library, sibling domain packages, and shopspring/decimal. Nothing else, ever. The business vocabulary (money, instruments, balances) stays free of infrastructure, so it is trivially testable and survives any adapter swap. Test files may add test-only dependencies.
 - **Everything external sits behind `internal/ports`.** Services never import an adapter. The port interfaces use only domain types, so reading a service tells you what it does, not which vendor it does it with (ADR-0003 explains the pattern in full).
-- **The M2 seam was locked early.** `OrderPlacer` and `PrivateStreamer` were compiled in M1 with no implementor, and `ClientOrderID` was declared as ours (generated locally, sent to the venue, used as the idempotency key) before any order code existed. Interfaces are cheapest to get right when nothing depends on them yet; by M2, five packages already compiled against these signatures.
+- **The trading seam was locked early.** `OrderPlacer` and `PrivateStreamer` were compiled here with no implementor, and `ClientOrderID` was declared as ours (generated locally, sent to the venue, used as the idempotency key) before any order code existed. Interfaces are cheapest to get right when nothing depends on them yet; by the time manual trading arrived, five packages already compiled against these signatures.
 
 Two domain details worth calling out because they prevent real bugs:
 
@@ -82,7 +82,7 @@ service retry (backoff/v5)
       -> gct adapter -> venue
 ```
 
-Two M1-specific calibrations show how the layers interact with the snapshot loop:
+Two snapshot-specific calibrations show how the layers interact with the snapshot loop:
 
 - The retry's total elapsed time is capped below the poll interval. Without the cap, a slow venue makes tick N's retries collide with tick N+1, and load on a struggling venue doubles exactly when it should halve.
 - Authentication errors are marked permanent: a bad API key fails once with a clear log line instead of being retried forever. Retrying cannot fix a wrong key, and hammering a venue with bad credentials is how keys get banned.
@@ -105,7 +105,7 @@ Partial truth is recorded honestly: a tick where two venues succeeded and one fa
 | `snapshot_duration_seconds{venue}` | ticks approaching the interval mean the schedule is about to slip |
 | `bus_dropped_total` | a slow bus subscriber is losing events; visible instead of silent |
 
-The staleness-gauge pattern (export the last success time, alert on its age) is the house standard; M2's reconciliation loop adopts it unchanged.
+The staleness-gauge pattern (export the last success time, alert on its age) is the house standard; the reconciliation loop in manual trading adopts it unchanged.
 
 ## Storage
 
@@ -117,7 +117,7 @@ The staleness-gauge pattern (export the last success time, alert on its age) is 
 
 Migrations are goose SQL files embedded in the binary via `embed.FS` and applied at startup, so a deployed binary and its schema cannot drift apart. Queries are sqlc-generated (ADR-0002 explains why generated-from-SQL beats an ORM here). Money is `numeric` in Postgres and decimal in Go; conversion to float64 happens only on the QuestDB edge, because that store is analytics, never accounting truth (ADR-0004).
 
-One deliberate choice that looks odd until M2: Postgres holds almost nothing in M1, a single checkpoint table. That single table still forced the entire migrations + sqlc + testcontainers pipeline to exist and be exercised in CI for weeks before the orders, fills, and ledger tables arrived with real stakes.
+One choice that looks odd until manual trading: Postgres holds almost nothing here, a single checkpoint table. That single table still forced the entire migrations + sqlc + testcontainers pipeline to exist and be exercised in CI for weeks before the orders, fills, and ledger tables arrived with real stakes.
 
 ## Verification
 
