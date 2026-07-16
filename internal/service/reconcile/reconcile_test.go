@@ -30,10 +30,14 @@ type fakePlacer struct {
 	mu         sync.Mutex
 	openOrders []domain.Snapshot
 	openErr    error
-	getOrder   domain.Snapshot
-	getErr     error
+	getOrders  map[string]fakeOrderResult
 	openCalls  int
 	getCalls   int
+}
+
+type fakeOrderResult struct {
+	snapshot domain.Snapshot
+	err      error
 }
 
 func (*fakePlacer) PlaceOrder(context.Context, domain.Request) (domain.Ack, error) {
@@ -49,11 +53,23 @@ func (f *fakePlacer) OpenOrders(context.Context) ([]domain.Snapshot, error) {
 	return append([]domain.Snapshot(nil), f.openOrders...), f.openErr
 }
 
-func (f *fakePlacer) GetOrder(context.Context, domain.Ref) (domain.Snapshot, error) {
+func (f *fakePlacer) GetOrder(_ context.Context, ref domain.Ref) (domain.Snapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.getCalls++
-	return f.getOrder, f.getErr
+	result, ok := f.getOrders[orderRefKey(ref)]
+	if !ok {
+		return domain.Snapshot{}, errors.New("unexpected point lookup")
+	}
+	return result.snapshot, result.err
+}
+
+func orderRefKey(ref domain.Ref) string {
+	return ref.Instrument.Key() + "\x00" + string(ref.ClientOrderID) + "\x00" + ref.VenueOrderID
+}
+
+func fakeOrderLookup(ref domain.Ref, snapshot domain.Snapshot, err error) map[string]fakeOrderResult {
+	return map[string]fakeOrderResult{orderRefKey(ref): {snapshot: snapshot, err: err}}
 }
 
 func (f *fakePlacer) setOpenError(err error) {
@@ -264,29 +280,46 @@ func TestPassReconcilesPresentOrders(t *testing.T) {
 	}
 }
 
-func TestPendingAbsent(t *testing.T) {
+func TestPendingAbsentRequiresAuthoritativeProof(t *testing.T) {
 	tests := []struct {
-		name        string
-		age         time.Duration
-		getErr      error
-		wantGet     int
-		wantApplied int
-		wantKind    string
+		name         string
+		age          time.Duration
+		venueOrderID string
+		lookup       *fakeOrderResult
+		wantGet      int
+		wantApplied  int
+		wantKind     string
 	}{
-		{name: "inside grace", age: testInterval, wantGet: 0},
+		{name: "inside grace", age: testInterval, venueOrderID: "v-1"},
 		{
-			name: "not found is submit lost", age: 2 * testInterval, getErr: ports.ErrNotFound,
-			wantGet: 1, wantApplied: 1, wantKind: "submit_lost",
+			name: "missing venue order ID remains unresolved", age: 2 * testInterval,
+			wantKind: "unresolved_submit",
+		},
+		{
+			name: "venue ID not found remains unresolved", age: 2 * testInterval,
+			venueOrderID: "v-1", lookup: &fakeOrderResult{err: ports.ErrNotFound},
+			wantGet: 1, wantKind: "unresolved_submit",
 		},
 		{
 			name: "generic error leaves pending", age: 2 * testInterval,
-			getErr: errors.New("venue down"), wantGet: 1,
+			venueOrderID: "v-1", lookup: &fakeOrderResult{err: errors.New("venue down")},
+			wantGet: 1,
+		},
+		{
+			name: "successful venue ID lookup adopts", age: 2 * testInterval,
+			venueOrderID: "v-1", lookup: &fakeOrderResult{snapshot: testSnapshot(domain.StatusOpen, "0")},
+			wantGet: 1, wantApplied: 1, wantKind: "adopted",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			placer := &fakePlacer{getErr: tt.getErr}
-			store := &fakeStore{active: []ports.StoredOrder{testStored(domain.StatusPending, tt.age)}}
+			stored := pendingStored(tt.venueOrderID)
+			stored.CreatedAt = testStart.Add(-tt.age)
+			placer := &fakePlacer{}
+			if tt.lookup != nil {
+				placer.getOrders = fakeOrderLookup(storedRef(stored), tt.lookup.snapshot, tt.lookup.err)
+			}
+			store := &fakeStore{active: []ports.StoredOrder{stored}}
 			service, _, metrics, _ := newTestService(t, placer, store)
 			if err := service.pass(context.Background(), service.venues[0]); err != nil {
 				t.Fatalf("pass: %v", err)
@@ -295,15 +328,11 @@ func TestPendingAbsent(t *testing.T) {
 			if getCalls != tt.wantGet || len(store.appliedEvents()) != tt.wantApplied {
 				t.Fatalf("GetOrder calls = %d, applied = %d; want %d, %d", getCalls, len(store.appliedEvents()), tt.wantGet, tt.wantApplied)
 			}
-			if tt.wantApplied == 0 {
-				return
+			if tt.wantApplied > 0 && store.appliedEvents()[0].event.Status != domain.StatusOpen {
+				t.Fatalf("applied event = %+v, want open adoption", store.appliedEvents()[0].event)
 			}
-			event := store.appliedEvents()[0].event
-			if event.Status != domain.StatusRejected || event.Reason != "submit-lost" ||
-				!event.FilledQty.Equal(decimal.RequireFromString("0.4")) {
-				t.Fatalf("submit-lost event = %+v", event)
-			}
-			if got := testutil.ToFloat64(metrics.diffs.WithLabelValues("bybit", tt.wantKind)); got != 1 {
+			if tt.wantKind != "" && testutil.ToFloat64(metrics.diffs.WithLabelValues("bybit", tt.wantKind)) != 1 {
+				got := testutil.ToFloat64(metrics.diffs.WithLabelValues("bybit", tt.wantKind))
 				t.Fatalf("diffs{%s} = %v, want 1", tt.wantKind, got)
 			}
 		})
@@ -316,8 +345,9 @@ func TestActiveAbsentAppliesTerminalSnapshot(t *testing.T) {
 	lookup := testSnapshot(domain.StatusFilled, "1")
 	lookup.Ref.ClientOrderID = ""
 	lookup.Ref.VenueOrderID = ""
-	placer := &fakePlacer{getOrder: lookup}
-	store := &fakeStore{active: []ports.StoredOrder{testStored(domain.StatusOpen, time.Minute)}}
+	stored := testStored(domain.StatusOpen, time.Minute)
+	placer := &fakePlacer{getOrders: fakeOrderLookup(storedRef(stored), lookup, nil)}
+	store := &fakeStore{active: []ports.StoredOrder{stored}}
 	service, _, metrics, _ := newTestService(t, placer, store)
 	if err := service.pass(context.Background(), service.venues[0]); err != nil {
 		t.Fatalf("pass: %v", err)

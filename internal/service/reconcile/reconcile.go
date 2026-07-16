@@ -207,13 +207,15 @@ func (s *Service) reconcilePending(ctx context.Context, v Venue, lo ports.Stored
 	if s.clk.Now().Sub(lo.CreatedAt) < 2*s.interval {
 		return nil
 	}
+	if lo.VenueOrderID == "" {
+		s.unresolvedSubmit(v.ID, lo, nil)
+		return nil
+	}
 	snap, err := v.Placer.GetOrder(ctx, storedRef(lo))
 	switch {
 	case errors.Is(err, ports.ErrNotFound):
-		return s.applyAndCount(ctx, v.ID, domain.Snapshot{
-			Ref: storedRef(lo), Status: domain.StatusRejected,
-			FilledQty: lo.FilledQty, UpdatedAt: s.clk.Now(),
-		}, "submit_lost", "submit-lost")
+		s.unresolvedSubmit(v.ID, lo, err)
+		return nil
 	case err != nil:
 		s.log.Warn().Str("venue", string(v.ID)).
 			Str("client_order_id", string(lo.ClientOrderID)).Err(err).
@@ -222,6 +224,15 @@ func (s *Service) reconcilePending(ctx context.Context, v Venue, lo ports.Stored
 	default:
 		return s.applyAndCount(ctx, v.ID, withLocalRef(snap, lo), "adopted", "")
 	}
+}
+
+func (s *Service) unresolvedSubmit(venue instrument.VenueID, lo ports.StoredOrder, err error) {
+	s.log.Warn().Str("venue", string(venue)).
+		Str("client_order_id", string(lo.ClientOrderID)).
+		Str("venue_order_id", lo.VenueOrderID).
+		Err(err).
+		Msg("pending submit cannot be resolved authoritatively")
+	s.metrics.observeDiff(venue, "unresolved_submit")
 }
 
 func (s *Service) reconcileMissingActive(ctx context.Context, v Venue, lo ports.StoredOrder) error {
@@ -359,7 +370,8 @@ func (s *Service) apply(ctx context.Context, snap domain.Snapshot, reason string
 	if note.FillConflict {
 		s.log.Warn().Str("venue", string(ev.Ref.Instrument.Venue)).
 			Str("client_order_id", string(ev.Ref.ClientOrderID)).
-			Msg("cumulative fill advanced under an already-recorded venue fill ID; ledger did not post the delta")
+			Str("venue_fill_id", ev.VenueFillID).
+			Msg("cumulative fill advanced under an already-recorded venue fill ID; delta posted without venue fill ID")
 	}
 	if decision.Drop != "" {
 		s.log.Debug().Str("venue", string(ev.Ref.Instrument.Venue)).

@@ -136,7 +136,8 @@ func (s *OrderStore) persistDecision(ctx context.Context, q *sqlcgen.Queries, ro
 
 	var note ports.LedgerNote
 	if decision.FillDelta.IsPositive() {
-		fillID, err := q.InsertFill(ctx, sqlcgen.InsertFillParams{
+		fillConflict := false
+		fill := sqlcgen.InsertFillParams{
 			ClientOrderID: row.ClientOrderID,
 			TransitionID:  tr.ID,
 			Qty:           decision.FillDelta,
@@ -145,21 +146,26 @@ func (s *OrderStore) persistDecision(ctx context.Context, q *sqlcgen.Queries, ro
 			FeeCurrency:   nullString(string(ev.FeeCurrency)),
 			VenueFillID:   nullString(ev.VenueFillID),
 			OccurredAt:    ev.At.UTC(),
-		})
-		switch {
-		case errors.Is(err, pgx.ErrNoRows):
-			// The venue fill ID is already recorded. Order truth still
-			// advances with the cumulative, but the ledger cannot post a
-			// second time against the same fill; the caller surfaces it.
-			note.FillConflict = true
-		case err != nil:
-			return ports.LedgerNote{}, fmt.Errorf("postgres: insert fill: %w", err)
-		default:
-			note, err = s.postLedgerFill(ctx, q, row, ev, decision.FillDelta, fillID)
-			if err != nil {
-				return ports.LedgerNote{}, err
-			}
 		}
+		fillID, err := q.InsertFill(ctx, fill)
+		if errors.Is(err, pgx.ErrNoRows) {
+			fillConflict = true
+			fill.VenueFillID = nil
+			fill.Fee = pgtype.Numeric{}
+			fill.FeeCurrency = nil
+			fillID, err = q.InsertFill(ctx, fill)
+			ev.VenueFillID = ""
+			ev.Fee = decimal.Zero
+			ev.FeeCurrency = ""
+		}
+		if err != nil {
+			return ports.LedgerNote{}, fmt.Errorf("postgres: insert fill: %w", err)
+		}
+		note, err = s.postLedgerFill(ctx, q, row, ev, decision.FillDelta, fillID)
+		if err != nil {
+			return ports.LedgerNote{}, err
+		}
+		note.FillConflict = fillConflict
 	}
 
 	if err := q.ApplyOrderUpdate(ctx, sqlcgen.ApplyOrderUpdateParams{

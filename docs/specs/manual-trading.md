@@ -170,7 +170,7 @@ The pending row is inserted **before** `PlaceOrder` is called, and the ordering 
 
 | Insert first (chosen) | Submit first |
 |---|---|
-| crash leaves a local `pending` order that may not exist on the venue; reconciliation resolves it (adopt or mark `submit-lost`) | crash leaves a live venue order that no local record knows about: untracked money |
+| crash leaves a local `pending` order that may not exist on the venue; reconciliation adopts it when venue evidence appears and otherwise keeps the uncertainty visible | crash leaves a live venue order that no local record knows about: untracked money |
 
 A record for money that may not exist is recoverable; money with no record is a search party.
 
@@ -179,7 +179,7 @@ Submit failure handling, walked through:
 1. `PlaceOrder` times out. Did the venue get it? Unknowable: the request may have died on the way there (no order exists) or the response on the way back (an order exists). This is failure mode 1 from the intro table.
 2. Retry **with the same ULID**, never a fresh one. If the first submit died en route, the retry places the order: correct. If the first submit landed, the venue answers "duplicate client order ID": also correct, and that error is good news, treated as success.
 3. The duplicate-error response carries no venue order ID, so the order stays `pending` locally until the next stream event or reconcile pass supplies one, matched on the client order ID the venue echoes back on every event.
-4. All retries exhausted and still no answer: the order stays `pending` and the caller is told the submit is unsettled. Reconciliation takes over: it either finds the order on the venue and adopts it, or, after a grace window of twice the reconcile interval, marks it `rejected` with reason `submit-lost`. The grace window exists because a submit can succeed on the venue after our last retry gave up waiting.
+4. All retries exhausted and still no answer: the order stays `pending` and the caller is told the submit is unsettled. Reconciliation adopts it when the venue's open-order scan finds the client order ID or when a known venue order ID resolves successfully. Otherwise it remains pending and is reported as an unresolved submit. Absence from active orders does not prove the submit was lost because the order may already be terminal.
 
 At the RPC layer, a supplied client order ID is a request idempotency key with teeth. The ID identifies the immutable request: venue, pair, side, type, price, quantity, and bot. Reusing an ID with a different identity is rejected as `AlreadyExists` without submitting anything, because silently submitting an order that disagrees with the stored row under the same key would corrupt the meaning of the key. Reusing it with a matching identity returns the current stored state without a new submit once the row has advanced or carries a venue order ID; only a still-pending row without a venue ID re-enters the same-ULID submit path, which is exactly the designed recovery.
 
@@ -244,7 +244,7 @@ The governing rule: the venue wins on execution facts.
 |---|---|---|
 | local non-terminal order absent from venue open orders | `GetOrder`, apply its terminal state | the walk above |
 | local pending order found on the venue | adopt it: apply the venue's state, capturing the venue order ID | a submit we thought lost actually landed |
-| local pending order absent, grace window (2× interval) expired, venue positively answers "no such order" | mark `rejected`, reason `submit-lost` | the submit really was lost; only a positive not-found triggers this, never a generic error, so a venue outage cannot mass-reject pending orders |
+| local pending order absent, grace window (2× interval) expired | leave pending and report `unresolved_submit` | only an authoritative client-ID search across active and terminal history could prove the submit was lost; a venue-ID lookup or active-order scan cannot |
 | cumulative quantity drift | apply the venue value through the normal fill-delta path | execution facts |
 | venue order unknown locally | **not** adopted; publish `reconcile.orphan`, raise a gauge | an unknown live order means a foreign order on a shared account or lost local state; both need a human, not an auto-import that guesses |
 

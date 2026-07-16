@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/shopspring/decimal"
 
 	"github.com/romanornr/delta-works/internal/bus"
@@ -234,4 +235,71 @@ type failingCheckpoints struct {
 
 func (f *failingCheckpoints) RecordSnapshot(context.Context, ports.SnapshotCheckpoint) error {
 	return errors.New("postgres down")
+}
+
+type deadlineCheckpoints struct{}
+
+func (*deadlineCheckpoints) RecordSnapshot(ctx context.Context, _ ports.SnapshotCheckpoint) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (*deadlineCheckpoints) LastSnapshot(context.Context, account.Ref) (ports.SnapshotCheckpoint, error) {
+	return ports.SnapshotCheckpoint{}, ports.ErrNotFound
+}
+
+type recordingBus struct {
+	mu     sync.Mutex
+	events []bus.Event
+}
+
+func (b *recordingBus) Publish(_ context.Context, event bus.Event) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.events = append(b.events, event)
+	return nil
+}
+
+func (*recordingBus) Subscribe(string, bus.Handler) (func(), error) { return func() {}, nil }
+
+func (b *recordingBus) count() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.events)
+}
+
+func TestCheckpointDeadlineDoesNotReportSuccess(t *testing.T) {
+	clk := clocktest.New(time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC))
+	series := newFakeStores()
+	eventBus := &recordingBus{}
+	metrics, err := NewMetrics(prometheus.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := Target{Venue: "bybit", Account: account.TypeSpot}
+	svc := New(
+		exchange.NewRegistry([]ports.Exchange{&fakeExchange{}}),
+		series,
+		&deadlineCheckpoints{},
+		eventBus,
+		clk,
+		testLogger(t),
+		time.Minute,
+		[]Target{target},
+		metrics,
+	)
+
+	err = svc.snapshot(context.Background(), target)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("snapshot error = %v, want DeadlineExceeded", err)
+	}
+	if got := testutil.CollectAndCount(metrics.duration); got != 0 {
+		t.Fatalf("snapshot duration observations = %d, want 0", got)
+	}
+	if got := testutil.CollectAndCount(metrics.lastSuccess); got != 0 {
+		t.Fatalf("snapshot last-success observations = %d, want 0", got)
+	}
+	if got := eventBus.count(); got != 0 {
+		t.Fatalf("published events = %d, want 0", got)
+	}
 }

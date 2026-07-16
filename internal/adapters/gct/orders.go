@@ -98,6 +98,14 @@ func (e *Exchange) OpenOrders(ctx context.Context) ([]order.Snapshot, error) {
 
 // GetOrder implements ports.OrderPlacer.
 func (e *Exchange) GetOrder(ctx context.Context, ref order.Ref) (order.Snapshot, error) {
+	if ref.VenueOrderID == "" {
+		return order.Snapshot{}, fmt.Errorf(
+			"gct: get order %s client %s: %w",
+			e.id,
+			ref.ClientOrderID,
+			ports.ErrNoVenueOrderID,
+		)
+	}
 	pair, item, err := toGCTPairAsset(e.exch, ref.Instrument)
 	if err != nil {
 		return order.Snapshot{}, err

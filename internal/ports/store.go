@@ -81,8 +81,8 @@ type LedgerNote struct {
 	OpenedLotID  string          // non-empty when a buy fill opened a lot
 	UnmatchedQty decimal.Decimal // positive when a sell fill oversold
 	// FillConflict reports contradictory venue data: the event advanced the
-	// cumulative fill under a venue fill ID that is already recorded, so
-	// order state moved but the ledger could not post the delta.
+	// cumulative fill under a venue fill ID that is already recorded. The
+	// delta and ledger posting remain authoritative without that secondary ID.
 	FillConflict bool
 }
 

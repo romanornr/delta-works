@@ -34,8 +34,8 @@ const streamRetryDelay = 30 * time.Second
 var (
 	// ErrSubmitUnsettled reports that the venue submit did not conclusively
 	// succeed or fail within the retry budget. The order stays pending;
-	// reconciliation adopts it or marks it rejected after the grace window.
-	ErrSubmitUnsettled = errors.New("submit unsettled; order stays pending until reconciliation")
+	// reconciliation adopts it only when the venue supplies matching evidence.
+	ErrSubmitUnsettled = errors.New("submit unsettled; order remains pending")
 	// ErrIdentityMismatch reports reuse of a client order ID with different immutable fields.
 	ErrIdentityMismatch = errors.New("client order ID identity mismatch")
 	// ErrTerminal reports an attempt to cancel an order already in a terminal state.
@@ -200,8 +200,8 @@ func (s *Service) submitFailure(ctx context.Context, req domain.Request, err err
 	// Everything else is ambiguous: the venue may hold the order. That
 	// covers duplicate-ID venue errors (GCT gives no way to classify
 	// them) and context cancellation that raced an in-flight submit.
-	// Reconciliation adopts the pending order by client order ID or
-	// rejects it after the grace window.
+	// Reconciliation adopts the pending order when the venue reports the
+	// client order ID. Absence from active orders is not proof of rejection.
 	s.log.Error().Str("venue", string(req.Instrument.Venue)).
 		Str("client_order_id", string(req.ClientOrderID)).Err(err).
 		Msg("submit unsettled after retries")
@@ -332,7 +332,7 @@ func (s *Service) apply(ctx context.Context, source domain.Source, ev domain.Eve
 		s.log.Warn().Str("venue", string(venue)).
 			Str("client_order_id", string(ev.Ref.ClientOrderID)).
 			Str("venue_fill_id", ev.VenueFillID).
-			Msg("cumulative fill advanced under an already-recorded venue fill ID; ledger did not post the delta")
+			Msg("cumulative fill advanced under an already-recorded venue fill ID; delta posted without venue fill ID")
 	}
 	if decision.Drop != "" && !decision.Transition && !decision.FillDelta.IsPositive() {
 		s.metrics.observeDropped(venue, string(decision.Drop))
