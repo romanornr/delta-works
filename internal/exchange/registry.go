@@ -70,6 +70,7 @@ func isBreakerSuccess(err error) bool {
 		errors.Is(err, ports.ErrAuth) ||
 		errors.Is(err, ports.ErrUnsupportedAccount) ||
 		errors.Is(err, ports.ErrNotFound) ||
+		errors.Is(err, ports.ErrNoVenueOrderID) ||
 		errors.Is(err, context.Canceled) ||
 		errors.Is(err, errLimiterWait)
 }
