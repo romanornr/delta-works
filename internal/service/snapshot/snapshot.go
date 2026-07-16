@@ -190,8 +190,9 @@ func (s *Service) writeSeries(ctx context.Context, snap account.Snapshot) error 
 }
 
 func (s *Service) record(ctx context.Context, c ports.SnapshotCheckpoint) error {
-	if err := s.checkpoints.RecordSnapshot(ctx, c); err != nil && ctx.Err() == nil {
-		return fmt.Errorf("checkpoint store: %w", err)
+	err := s.checkpoints.RecordSnapshot(ctx, c)
+	if err == nil || errors.Is(ctx.Err(), context.Canceled) {
+		return nil
 	}
-	return nil
+	return fmt.Errorf("checkpoint store: %w", err)
 }
