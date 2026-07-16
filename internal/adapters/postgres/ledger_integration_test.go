@@ -113,6 +113,94 @@ SELECT qty, remaining_qty, cost_price, opened_at FROM lots WHERE id=$1`, note.Op
 		}
 	})
 
+	t.Run("reused venue fill ID posts every cumulative delta", func(t *testing.T) {
+		req := newLedgerOrder(ctx, t, store, "fill-conflict", order.Buy, "1")
+		at := time.Date(2026, 7, 12, 10, 30, 0, 0, time.UTC)
+		first := ledgerEvent(req, order.StatusPartiallyFilled, "0.4", "100", "reused-fill", at)
+		first.Fee = decimal.RequireFromString("0.01")
+		first.FeeCurrency = "USDT"
+		_, firstNote := applyLedgerEvent(ctx, t, store, order.SourceStream, first)
+		assertBuyOrderAccounting(ctx, t, pool, req.ClientOrderID, "0.4")
+
+		second := ledgerEvent(req, order.StatusFilled, "1", "110", "reused-fill", at.Add(time.Minute))
+		second.Fee = decimal.RequireFromString("0.02")
+		second.FeeCurrency = "USDT"
+		_, secondNote := applyLedgerEvent(ctx, t, store, order.SourceStream, second)
+		assertBuyOrderAccounting(ctx, t, pool, req.ClientOrderID, "1")
+
+		for _, note := range []ports.LedgerNote{firstNote, secondNote} {
+			if note.OpenedLotID == "" {
+				t.Fatalf("LedgerNote = %+v, want opened lot", note)
+			}
+		}
+		if firstNote.FillConflict || !secondNote.FillConflict {
+			t.Fatalf("fill conflicts: first=%t second=%t, want false/true", firstNote.FillConflict, secondNote.FillConflict)
+		}
+
+		rows, err := pool.Query(ctx, `
+SELECT l.qty, l.cost_price
+FROM lots l
+JOIN fills f ON f.id=l.opened_by_fill_id
+WHERE f.client_order_id=$1
+ORDER BY l.opened_at, l.id`, string(req.ClientOrderID))
+		if err != nil {
+			t.Fatalf("query conflict lots: %v", err)
+		}
+		defer rows.Close()
+		wantQty := []decimal.Decimal{decimal.RequireFromString("0.4"), decimal.RequireFromString("0.6")}
+		wantCost := []decimal.Decimal{decimal.NewFromInt(100), decimal.NewFromInt(110)}
+		i := 0
+		for rows.Next() {
+			var qty, cost decimal.Decimal
+			if err := rows.Scan(&qty, &cost); err != nil {
+				t.Fatalf("scan conflict lot: %v", err)
+			}
+			if i >= len(wantQty) || !qty.Equal(wantQty[i]) || !cost.Equal(wantCost[i]) {
+				t.Fatalf("lot %d: qty=%s cost=%s", i, qty, cost)
+			}
+			i++
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("conflict lots: %v", err)
+		}
+		if i != len(wantQty) {
+			t.Fatalf("conflict lots = %d, want %d", i, len(wantQty))
+		}
+
+		var originalQty, originalFee decimal.Decimal
+		var originalFeeCurrency string
+		if err := pool.QueryRow(ctx, `
+SELECT qty, fee, fee_currency FROM fills
+WHERE client_order_id=$1 AND venue_fill_id='reused-fill'`, string(req.ClientOrderID)).
+			Scan(&originalQty, &originalFee, &originalFeeCurrency); err != nil {
+			t.Fatalf("query identified fill: %v", err)
+		}
+		if !originalQty.Equal(decimal.RequireFromString("0.4")) ||
+			!originalFee.Equal(decimal.RequireFromString("0.01")) || originalFeeCurrency != "USDT" {
+			t.Fatalf("identified fill: qty=%s fee=%s %s", originalQty, originalFee, originalFeeCurrency)
+		}
+		if got := countRows(ctx, t, pool, `
+SELECT COUNT(*) FROM fills
+WHERE client_order_id=$1 AND venue_fill_id IS NULL AND fee IS NULL AND fee_currency IS NULL`, string(req.ClientOrderID)); got != 1 {
+			t.Fatalf("fallback fills without conflicting metadata = %d, want 1", got)
+		}
+
+		var body []byte
+		if err := pool.QueryRow(ctx, `
+SELECT payload FROM outbox
+WHERE subject='order.filled' AND payload->>'client_order_id'=$1
+ORDER BY id DESC LIMIT 1`, string(req.ClientOrderID)).Scan(&body); err != nil {
+			t.Fatalf("query fallback outbox: %v", err)
+		}
+		var payload order.FilledPayload
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("decode fallback outbox: %v", err)
+		}
+		if payload.VenueFillID != "" || !payload.Fee.IsZero() || payload.FeeCurrency != "" {
+			t.Fatalf("fallback outbox retained conflicting metadata: %+v", payload)
+		}
+	})
+
 	t.Run("sell closes FIFO across lots", func(t *testing.T) {
 		bot := "fifo"
 		first := newLedgerOrder(ctx, t, store, bot, order.Buy, "2")
@@ -445,5 +533,29 @@ JOIN fills f ON f.id=u.sell_fill_id
 JOIN orders o ON o.client_order_id=f.client_order_id
 WHERE o.side <> 'sell' OR u.bot_id <> o.bot_id OR u.venue <> o.venue OR u.base <> o.base OR u.quote <> o.quote`); got != 0 {
 		t.Fatalf("unmatched sells violating invariant = %d", got)
+	}
+}
+
+func assertBuyOrderAccounting(
+	ctx context.Context,
+	t *testing.T,
+	pool *pgxpool.Pool,
+	clientOrderID order.ClientOrderID,
+	want string,
+) {
+	t.Helper()
+	var orderQty, fillQty, lotQty decimal.Decimal
+	if err := pool.QueryRow(ctx, `
+SELECT o.filled_qty,
+       COALESCE((SELECT SUM(f.qty) FROM fills f WHERE f.client_order_id=o.client_order_id), 0),
+       COALESCE((SELECT SUM(l.qty) FROM lots l JOIN fills f ON f.id=l.opened_by_fill_id
+                 WHERE f.client_order_id=o.client_order_id), 0)
+FROM orders o
+WHERE o.client_order_id=$1`, string(clientOrderID)).Scan(&orderQty, &fillQty, &lotQty); err != nil {
+		t.Fatalf("query buy accounting invariant: %v", err)
+	}
+	expected := decimal.RequireFromString(want)
+	if !orderQty.Equal(expected) || !fillQty.Equal(expected) || !lotQty.Equal(expected) {
+		t.Fatalf("accounting quantities: order=%s fills=%s lots=%s, want %s", orderQty, fillQty, lotQty, expected)
 	}
 }

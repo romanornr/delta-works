@@ -332,7 +332,7 @@ func (s *Service) apply(ctx context.Context, source domain.Source, ev domain.Eve
 		s.log.Warn().Str("venue", string(venue)).
 			Str("client_order_id", string(ev.Ref.ClientOrderID)).
 			Str("venue_fill_id", ev.VenueFillID).
-			Msg("cumulative fill advanced under an already-recorded venue fill ID; ledger did not post the delta")
+			Msg("cumulative fill advanced under an already-recorded venue fill ID; delta posted without venue fill ID")
 	}
 	if decision.Drop != "" && !decision.Transition && !decision.FillDelta.IsPositive() {
 		s.metrics.observeDropped(venue, string(decision.Drop))

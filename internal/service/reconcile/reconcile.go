@@ -370,7 +370,8 @@ func (s *Service) apply(ctx context.Context, snap domain.Snapshot, reason string
 	if note.FillConflict {
 		s.log.Warn().Str("venue", string(ev.Ref.Instrument.Venue)).
 			Str("client_order_id", string(ev.Ref.ClientOrderID)).
-			Msg("cumulative fill advanced under an already-recorded venue fill ID; ledger did not post the delta")
+			Str("venue_fill_id", ev.VenueFillID).
+			Msg("cumulative fill advanced under an already-recorded venue fill ID; delta posted without venue fill ID")
 	}
 	if decision.Drop != "" {
 		s.log.Debug().Str("venue", string(ev.Ref.Instrument.Venue)).
