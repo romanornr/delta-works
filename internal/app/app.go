@@ -22,9 +22,7 @@ import (
 	"github.com/romanornr/delta-works/internal/api"
 	"github.com/romanornr/delta-works/internal/bus"
 	"github.com/romanornr/delta-works/internal/config"
-	"github.com/romanornr/delta-works/internal/domain/account"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
-	"github.com/romanornr/delta-works/internal/exchange"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
 	orderservice "github.com/romanornr/delta-works/internal/service/order"
@@ -32,6 +30,7 @@ import (
 	"github.com/romanornr/delta-works/internal/service/reconcile"
 	"github.com/romanornr/delta-works/internal/service/snapshot"
 	"github.com/romanornr/delta-works/internal/telemetry"
+	"github.com/romanornr/delta-works/internal/venue"
 )
 
 // startupTimeout bounds constructor-time network work (venue setup, store
@@ -57,7 +56,7 @@ func New(configPath string, configExplicit bool) *fx.App {
 				},
 				fx.ParamTags("", "", `group:"health"`, ""),
 			),
-			newExchangeProducts,
+			newVenueCatalog,
 			newPostgres,
 			fx.Annotate(postgres.NewCheckpointStore, fx.As(new(ports.SnapshotRecorder), new(ports.SnapshotReader))),
 			fx.Annotate(postgres.NewOutboxStore, fx.As(new(ports.OutboxStore))),
@@ -85,69 +84,77 @@ func New(configPath string, configExplicit bool) *fx.App {
 	)
 }
 
-type tradingVenue struct {
-	ID       instrument.VenueID
-	Placer   ports.OrderPlacer
-	Streamer ports.PrivateStreamer
+type gctConnector struct {
+	bus bus.Bus
+	clk clockwork.Clock
+	log log.Logger
 }
 
-type exchangeProducts struct {
-	fx.Out
-
-	Registry exchange.Registry
-	Trading  []tradingVenue
+func (c gctConnector) Support(name string) (venue.Support, error) {
+	support, ok := gct.SupportFor(name)
+	if !ok {
+		return venue.Support{}, fmt.Errorf("venue %q has no source-verified GCT capability record", name)
+	}
+	return venue.Support(support), nil
 }
 
-// newExchangeProducts connects every enabled venue through the GCT adapter
-// and wraps it in the standard resilience stack (rate limit + breaker).
-func newExchangeProducts(cfg config.Config, l log.Logger, eventBus bus.Bus, clk clockwork.Clock) (exchangeProducts, error) {
-	logger := log.Component(l, "exchange")
+func (c gctConnector) Connect(ctx context.Context, name string, cfg config.Venue) (venue.Source, error) {
+	ex, err := gct.New(ctx, name, cfg)
+	if err != nil {
+		return nil, err
+	}
+	support, _ := gct.SupportFor(string(instrument.NewVenueID(name)))
+	source := &gctSource{exchange: ex, support: support}
+	if cfg.Trading && support.PrivateEvents {
+		venueID := instrument.NewVenueID(name)
+		source.streamer = gct.NewStreamer(ex, func() {
+			_ = c.bus.Publish(context.Background(), bus.Event{
+				Subject: orderservice.SubjectStreamReconnected,
+				At:      c.clk.Now(), Payload: venueID,
+			})
+		})
+	}
+	c.log.Info().Str("venue", name).Strs("accounts", cfg.Accounts).
+		Bool("authenticated", cfg.APIKey != "").Msg("venue connected")
+	return source, nil
+}
+
+type gctSource struct {
+	exchange *gct.Exchange
+	support  gct.Support
+	streamer ports.PrivateStreamer
+}
+
+func (s *gctSource) Account() (ports.AccountReader, bool) {
+	return s.exchange, s.support.Account
+}
+
+func (s *gctSource) MarketData() (ports.MarketDataReader, bool) {
+	return s.exchange, s.support.MarketData
+}
+
+func (s *gctSource) Orders() (ports.OrderPlacer, bool) {
+	return s.exchange, s.support.Orders
+}
+
+func (s *gctSource) PrivateEvents() (ports.PrivateStreamer, bool) {
+	return s.streamer, s.streamer != nil
+}
+
+func newVenueCatalog(cfg config.Config, l log.Logger, eventBus bus.Bus, clk clockwork.Clock) (*venue.Catalog, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), startupTimeout)
 	defer cancel()
-	var exchanges []ports.Exchange
-	var trading []tradingVenue
-	for _, name := range cfg.EnabledVenues() {
-		venueCfg := cfg.Venues[name]
-		ex, err := gct.New(ctx, name, venueCfg)
-		if err != nil {
-			return exchangeProducts{}, err
-		}
-		decorated := exchange.Decorate(ex, venueCfg.Rate.RPS, venueCfg.Rate.Burst)
-		exchanges = append(exchanges, decorated)
-		if venueCfg.Trading {
-			placer, ok := decorated.(ports.OrderPlacer)
-			if !ok {
-				return exchangeProducts{}, fmt.Errorf("venue %q: decorated exchange does not implement order placement", name)
-			}
-			venueID := instrument.NewVenueID(name)
-			streamer := gct.NewStreamer(ex, func() {
-				_ = eventBus.Publish(context.Background(), bus.Event{
-					Subject: orderservice.SubjectStreamReconnected,
-					At:      clk.Now(), Payload: venueID,
-				})
-			})
-			trading = append(trading, tradingVenue{ID: venueID, Placer: placer, Streamer: streamer})
-		}
-		logger.Info().Str("venue", name).Strs("accounts", venueCfg.Accounts).
-			Bool("authenticated", venueCfg.APIKey != "").Msg("venue connected")
-	}
-	return exchangeProducts{Registry: exchange.NewRegistry(exchanges), Trading: trading}, nil
+	return venue.Build(ctx, cfg.Venues, gctConnector{
+		bus: eventBus, clk: clk, log: log.Component(l, "venue"),
+	})
 }
 
-func newOrderService(cfg config.Config, venues []tradingVenue, commands ports.OrderCommandStore, events ports.OrderEventStore, clk clockwork.Clock, l log.Logger, m *orderservice.Metrics) *orderservice.Service {
-	converted := make([]orderservice.Venue, 0, len(venues))
-	for _, venue := range venues {
-		converted = append(converted, orderservice.Venue(venue))
-	}
-	return orderservice.New(converted, commands, events, clk, l, cfg.Order.SubmitBudget, m)
+func newOrderService(cfg config.Config, catalog *venue.Catalog, commands ports.OrderCommandStore, events ports.OrderEventStore, clk clockwork.Clock, l log.Logger, m *orderservice.Metrics) *orderservice.Service {
+	return orderservice.New(catalog.OrderEntries(), commands, events, clk, l, cfg.Order.SubmitBudget, m)
 }
 
-func newReconcileService(cfg config.Config, venues []tradingVenue, orders ports.OrderReconcileStore, events ports.OrderEventStore, eventBus bus.Bus, clk clockwork.Clock, l log.Logger, m *reconcile.Metrics) *reconcile.Service {
-	converted := make([]reconcile.Venue, 0, len(venues))
-	for _, venue := range venues {
-		converted = append(converted, reconcile.Venue{ID: venue.ID, Placer: venue.Placer})
-	}
-	return reconcile.New(converted, orders, events, eventBus, clk, l, cfg.Reconcile.Interval, m)
+func newReconcileService(cfg config.Config, catalog *venue.Catalog, orders ports.OrderReconcileStore, events ports.OrderEventStore, eventBus bus.Bus, clk clockwork.Clock, l log.Logger, m *reconcile.Metrics) *reconcile.Service {
+	return reconcile.New(catalog.OrderEntries(), orders, events, eventBus, clk, l, cfg.Reconcile.Interval, m)
 }
 
 func newPostgres(lc fx.Lifecycle, cfg config.Config) (*pgxpool.Pool, error) {
@@ -181,7 +188,7 @@ func newQuestDBHealth(cfg config.Config) *questdb.Health {
 
 func newSnapshotService(
 	cfg config.Config,
-	registry exchange.Registry,
+	catalog *venue.Catalog,
 	series ports.BalanceSeriesWriter,
 	checkpoints ports.SnapshotRecorder,
 	eventBus bus.Bus,
@@ -190,15 +197,15 @@ func newSnapshotService(
 	m *snapshot.Metrics,
 ) *snapshot.Service {
 	var targets []snapshot.Target
-	for _, name := range cfg.EnabledVenues() {
-		for _, acct := range cfg.Venues[name].Accounts {
+	for _, entry := range catalog.Entries() {
+		reader, _ := entry.Account()
+		for _, acct := range entry.Accounts() {
 			targets = append(targets, snapshot.Target{
-				Venue:   instrument.NewVenueID(name),
-				Account: account.Type(acct),
+				Venue: entry.ID(), Account: acct, Reader: reader,
 			})
 		}
 	}
-	return snapshot.New(registry, series, checkpoints, eventBus, clk, l, cfg.Snapshot.Interval, targets, m)
+	return snapshot.New(series, checkpoints, eventBus, clk, l, cfg.Snapshot.Interval, targets, m)
 }
 
 func newOutboxService(cfg config.Config, store ports.OutboxStore, eventBus bus.Bus, clk clockwork.Clock, l log.Logger, m *outbox.Metrics) *outbox.Service {
@@ -213,14 +220,14 @@ func startOutboxService(lc fx.Lifecycle, svc *outbox.Service, l log.Logger, shut
 	startService(lc, "outbox", svc.Run, l, shutdowner)
 }
 
-func startReconcileService(lc fx.Lifecycle, venues []tradingVenue, svc *reconcile.Service, l log.Logger, shutdowner fx.Shutdowner) {
-	if len(venues) > 0 {
+func startReconcileService(lc fx.Lifecycle, catalog *venue.Catalog, svc *reconcile.Service, l log.Logger, shutdowner fx.Shutdowner) {
+	if len(catalog.OrderEntries()) > 0 {
 		startService(lc, "reconcile", svc.Run, l, shutdowner)
 	}
 }
 
-func startOrderService(lc fx.Lifecycle, venues []tradingVenue, svc *orderservice.Service, reconcileService *reconcile.Service, l log.Logger, shutdowner fx.Shutdowner) {
-	if len(venues) == 0 {
+func startOrderService(lc fx.Lifecycle, catalog *venue.Catalog, svc *orderservice.Service, reconcileService *reconcile.Service, l log.Logger, shutdowner fx.Shutdowner) {
+	if len(catalog.OrderEntries()) == 0 {
 		return
 	}
 	// Reconciliation is subscribed before private streams start. A stream
@@ -335,9 +342,13 @@ func startAPIServer(lc fx.Lifecycle, cfg config.Config, snapshots *api.SnapshotS
 	}, l, shutdowner)
 }
 
-func logStartup(cfg config.Config, l log.Logger) {
+func logStartup(cfg config.Config, catalog *venue.Catalog, l log.Logger) {
+	names := make([]string, 0, len(catalog.Entries()))
+	for _, entry := range catalog.Entries() {
+		names = append(names, string(entry.ID()))
+	}
 	l.Info().
-		Strs("venues", cfg.EnabledVenues()).
+		Strs("venues", names).
 		Dur("snapshot_interval", cfg.Snapshot.Interval).
 		Msg("starting")
 }

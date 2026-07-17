@@ -21,7 +21,7 @@ Two design problems dominate, and both have their foundations laid in the manual
 
 ## Execution and cross-venue
 
-- Cross-exchange arbitrage: a strategy holding two venue registry entries and trading the spread between them.
+- Cross-exchange arbitrage: a strategy holding two venue catalog entries and trading the spread between them.
 - Execution algorithms as parent/child order slicers feeding the same order management core: TWAP and VWAP (time- and volume-weighted slicing of a large order), iceberg (show a sliver, hide the size), adaptive and pegged variants, scaling entries, pair trades, delta hedging.
 - NATS/JetStream replaces the in-process bus when the platform becomes multi-process ([ADR-0005](adr/0005-in-process-bus-nats-later.md) records the migration path and candidate uses).
 - Native exchange adapters replace gocryptotrader per venue where speed or reliability justifies it ([ADR-0003](adr/0003-gct-quarantine.md) makes this a drop-in swap).
@@ -29,7 +29,7 @@ Two design problems dominate, and both have their foundations laid in the manual
 
 ## Later: quant analytics
 
-Sell-side style analytics computed over the QuestDB series: standard deviations and z-scores, sigma-event detection, drawdown, cumulative net flow, skew, distribution charts, volatility expansion. The implication for today, and the reason this section exists on the roadmap at all: ingest time-series richly (balances, tickers, later fills, marks, funding) with clean symbols and designated timestamps, so all of this becomes pure read-side computation later instead of a re-ingestion project.
+Sell-side style analytics computed over the QuestDB series: standard deviations and z-scores, sigma-event detection, drawdown, cumulative net flow, skew, distribution charts, volatility expansion. Balances are ingested today. The optional market-data reader and ticker-series writer stay available so a future producer can add tickers, followed later by fills, marks, and funding, with clean symbols and designated timestamps. Ticker ingestion is not active yet.
 
 ## Someday
 

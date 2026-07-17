@@ -21,6 +21,7 @@ type Fixture struct {
 	Instrument          instrument.Instrument
 	MinQty              decimal.Decimal
 	MinNotional         decimal.Decimal
+	MaxNotional         decimal.Decimal
 	NonMarketablePrice  func(context.Context) (decimal.Decimal, error)
 	EchoesClientOrderID bool
 	Deadline            time.Duration
@@ -56,6 +57,7 @@ func RunOrderPlacerContract(t *testing.T, placer ports.OrderPlacer, fixture Fixt
 	if price.IsPositive() && qty.Mul(price).LessThan(fixture.MinNotional) {
 		qty = fixture.MinNotional.Div(price)
 	}
+	requireNotionalAtMost(t, qty.Mul(price), fixture.MaxNotional)
 	request := order.Request{
 		ClientOrderID: order.ClientOrderID(id.New()), BotID: "contract",
 		Instrument: fixture.Instrument, Side: order.Buy, Type: order.Limit,
@@ -91,6 +93,13 @@ func RunOrderPlacerContract(t *testing.T, placer ports.OrderPlacer, fixture Fixt
 	}
 	if matches != 1 {
 		t.Fatalf("OpenOrders contains %d matching orders after duplicate placement, want 1", matches)
+	}
+}
+
+func requireNotionalAtMost(t *testing.T, notional, maximum decimal.Decimal) {
+	t.Helper()
+	if maximum.IsPositive() && notional.GreaterThan(maximum) {
+		t.Fatalf("order notional %s exceeds safety cap %s", notional, maximum)
 	}
 }
 

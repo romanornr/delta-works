@@ -17,6 +17,7 @@ import (
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
 	"github.com/romanornr/delta-works/internal/ports/portstest"
+	"github.com/romanornr/delta-works/internal/venue"
 )
 
 func testInstrument() instrument.Instrument {
@@ -33,6 +34,20 @@ type fakePlacer struct {
 	err      error
 	cancels  []domain.Ref
 	orders   map[domain.ClientOrderID]domain.Snapshot
+}
+
+type fakeVenue struct {
+	id       instrument.VenueID
+	placer   ports.OrderPlacer
+	streamer ports.PrivateStreamer
+}
+
+func (v fakeVenue) ID() instrument.VenueID { return v.id }
+
+func (v fakeVenue) Orders() (ports.OrderPlacer, bool) { return v.placer, v.placer != nil }
+
+func (v fakeVenue) PrivateEvents() (ports.PrivateStreamer, bool) {
+	return v.streamer, v.streamer != nil
 }
 
 func (f *fakePlacer) PlaceOrder(_ context.Context, req domain.Request) (domain.Ack, error) {
@@ -162,7 +177,7 @@ func newService(t *testing.T, placer ports.OrderPlacer, store *fakeStore, stream
 	if err != nil {
 		t.Fatal(err)
 	}
-	venues := []Venue{{ID: "bybit", Placer: placer, Streamer: streamer}}
+	venues := []venue.OrderEntry{fakeVenue{id: "bybit", placer: placer, streamer: streamer}}
 	return New(venues, store, store, clk, log.Nop(), 2*time.Second, m), clk, m
 }
 
@@ -538,9 +553,9 @@ func TestRunStartsOneConsumerPerVenue(t *testing.T) {
 	}
 	clk := clockwork.NewFakeClockAt(time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC))
 	store := &fakeStore{}
-	svc := New([]Venue{
-		{ID: "bybit", Placer: &fakePlacer{}, Streamer: first},
-		{ID: "kraken", Placer: &fakePlacer{}, Streamer: second},
+	svc := New([]venue.OrderEntry{
+		fakeVenue{id: "bybit", placer: &fakePlacer{}, streamer: first},
+		fakeVenue{id: "kraken", placer: &fakePlacer{}, streamer: second},
 	}, store, store, clk, log.Nop(), time.Second, metrics)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
@@ -621,7 +636,7 @@ func TestFillConflictCountedAndLogged(t *testing.T) {
 func TestFakePlacerContract(t *testing.T) {
 	t.Parallel()
 	portstest.RunOrderPlacerContract(t, &fakePlacer{}, portstest.Fixture{
-		Instrument: testInstrument(), MinQty: decimal.NewFromInt(1), MinNotional: decimal.NewFromInt(1),
+		Instrument: testInstrument(), MinQty: decimal.NewFromInt(1), MinNotional: decimal.NewFromInt(1), MaxNotional: decimal.NewFromInt(1),
 		NonMarketablePrice:  func(context.Context) (decimal.Decimal, error) { return decimal.NewFromInt(1), nil },
 		EchoesClientOrderID: true, Deadline: 5 * time.Second, Cleanup: portstest.CleanupPlacedOrders,
 	})
