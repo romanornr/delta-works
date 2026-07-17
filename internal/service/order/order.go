@@ -19,6 +19,7 @@ import (
 	"github.com/romanornr/delta-works/internal/id"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
+	"github.com/romanornr/delta-works/internal/venue"
 )
 
 // SubjectStreamReconnected is published (by the streamer wiring, payload:
@@ -50,18 +51,10 @@ type PlaceResult struct {
 	Status        domain.Status
 }
 
-// Venue is one tradable venue: the resilience-wrapped order surface and
-// its private event stream.
-type Venue struct {
-	ID       instrument.VenueID
-	Placer   ports.OrderPlacer
-	Streamer ports.PrivateStreamer
-}
-
 // Service is the only path through which orders are placed or canceled
 // (ADR-0007: the control plane is the sole client surface).
 type Service struct {
-	venues       map[instrument.VenueID]Venue
+	venues       map[instrument.VenueID]venue.OrderEntry
 	commands     ports.OrderCommandStore
 	events       ports.OrderEventStore
 	clk          clockwork.Clock
@@ -72,10 +65,10 @@ type Service struct {
 
 // New builds the service. Metrics must not be nil. submitBudget caps the
 // total time spent retrying one venue submit with the same ULID.
-func New(venues []Venue, commands ports.OrderCommandStore, events ports.OrderEventStore, clk clockwork.Clock, logger log.Logger, submitBudget time.Duration, metrics *Metrics) *Service {
-	byID := make(map[instrument.VenueID]Venue, len(venues))
+func New(venues []venue.OrderEntry, commands ports.OrderCommandStore, events ports.OrderEventStore, clk clockwork.Clock, logger log.Logger, submitBudget time.Duration, metrics *Metrics) *Service {
+	byID := make(map[instrument.VenueID]venue.OrderEntry, len(venues))
 	for _, v := range venues {
-		byID[v.ID] = v
+		byID[v.ID()] = v
 	}
 	return &Service{
 		venues:       byID,
@@ -93,7 +86,7 @@ func New(venues []Venue, commands ports.OrderCommandStore, events ports.OrderEve
 // The returned ID is valid even when the error is ErrSubmitUnsettled: the
 // order exists locally and reconciliation settles its fate.
 func (s *Service) Place(ctx context.Context, req domain.Request) (PlaceResult, error) {
-	req, venue, existing, err := s.preparePlace(ctx, req)
+	req, entry, existing, err := s.preparePlace(ctx, req)
 	if err != nil {
 		return PlaceResult{}, err
 	}
@@ -101,9 +94,10 @@ func (s *Service) Place(ctx context.Context, req domain.Request) (PlaceResult, e
 		return *existing, nil
 	}
 
+	placer, _ := entry.Orders()
 	ack, err := backoff.Retry(ctx, func() (domain.Ack, error) {
-		a, err := venue.Placer.PlaceOrder(ctx, req)
-		if errors.Is(err, ports.ErrAuth) || errors.Is(err, ports.ErrTradingUnsupported) {
+		a, err := placer.PlaceOrder(ctx, req)
+		if errors.Is(err, ports.ErrAuth) {
 			return domain.Ack{}, backoff.Permanent(err)
 		}
 		return a, err
@@ -141,7 +135,7 @@ func (s *Service) acceptedUnsettled(req domain.Request, err error) (PlaceResult,
 		fmt.Errorf("%w: %w", ErrSubmitUnsettled, err)
 }
 
-func (s *Service) preparePlace(ctx context.Context, req domain.Request) (domain.Request, Venue, *PlaceResult, error) {
+func (s *Service) preparePlace(ctx context.Context, req domain.Request) (domain.Request, venue.OrderEntry, *PlaceResult, error) {
 	if req.ClientOrderID == "" {
 		req.ClientOrderID = domain.ClientOrderID(id.New())
 	}
@@ -155,7 +149,7 @@ func (s *Service) preparePlace(ctx context.Context, req domain.Request) (domain.
 	if configured {
 		inserted, err := s.commands.CreatePending(ctx, req)
 		if err != nil {
-			return req, Venue{}, nil, err
+			return req, nil, nil, err
 		}
 		if inserted {
 			return req, venue, nil, nil
@@ -164,28 +158,28 @@ func (s *Service) preparePlace(ctx context.Context, req domain.Request) (domain.
 	stored, err := s.commands.GetOrder(ctx, req.ClientOrderID)
 	if err != nil {
 		if !configured && errors.Is(err, ports.ErrNotFound) {
-			return req, Venue{}, nil, fmt.Errorf("%w: %q", ErrVenueNotConfigured, req.Instrument.Venue)
+			return req, nil, nil, fmt.Errorf("%w: %q", ErrVenueNotConfigured, req.Instrument.Venue)
 		}
-		return req, Venue{}, nil, err
+		return req, nil, nil, err
 	}
 	if !sameIdentity(stored, req) {
-		return req, Venue{}, nil, fmt.Errorf("%w: %s", ErrIdentityMismatch, req.ClientOrderID)
+		return req, nil, nil, fmt.Errorf("%w: %s", ErrIdentityMismatch, req.ClientOrderID)
 	}
 	if stored.VenueOrderID == "" && stored.Status == domain.StatusPending {
 		if !configured {
-			return req, Venue{}, nil, fmt.Errorf("%w: %q", ErrVenueNotConfigured, req.Instrument.Venue)
+			return req, nil, nil, fmt.Errorf("%w: %q", ErrVenueNotConfigured, req.Instrument.Venue)
 		}
 		return req, venue, nil, nil
 	}
 	result := placeResult(stored)
-	return req, Venue{}, &result, nil
+	return req, nil, &result, nil
 }
 
 func (s *Service) submitFailure(ctx context.Context, req domain.Request, err error) (PlaceResult, error) {
 	// Recovery reads and writes must survive the caller's context: a
 	// canceled deadline is often exactly why we are here.
 	ctx = context.WithoutCancel(ctx)
-	if errors.Is(err, ports.ErrAuth) || errors.Is(err, ports.ErrTradingUnsupported) {
+	if errors.Is(err, ports.ErrAuth) {
 		// No venue order can exist, and the same failure blocks the venue
 		// lookups reconciliation would need, so settle the row now.
 		if applyErr := s.apply(ctx, domain.SourceLocal, domain.Event{
@@ -239,14 +233,15 @@ func (s *Service) Cancel(ctx context.Context, orderID domain.ClientOrderID) (dom
 	if stored.Status.Terminal() {
 		return "", fmt.Errorf("%w: %s is already %s", ErrTerminal, orderID, stored.Status)
 	}
-	venue, ok := s.venues[stored.Instrument.Venue]
+	entry, ok := s.venues[stored.Instrument.Venue]
 	if !ok {
 		return "", fmt.Errorf("%w: %q", ErrVenueNotConfigured, stored.Instrument.Venue)
 	}
 	if err := s.commands.MarkCancelRequested(ctx, orderID, s.clk.Now()); err != nil {
 		return "", err
 	}
-	if err := venue.Placer.CancelOrder(ctx, domain.Ref{
+	placer, _ := entry.Orders()
+	if err := placer.CancelOrder(ctx, domain.Ref{
 		Instrument:    stored.Instrument,
 		ClientOrderID: stored.ClientOrderID,
 		VenueOrderID:  stored.VenueOrderID,
@@ -263,10 +258,10 @@ func (s *Service) Cancel(ctx context.Context, orderID domain.ClientOrderID) (dom
 func (s *Service) Run(ctx context.Context) error {
 	g, ctx := errgroup.WithContext(ctx)
 	for _, v := range s.venues {
-		if v.Streamer == nil {
+		if _, ok := v.PrivateEvents(); !ok {
 			// A venue can trade without a private stream; reconciliation
 			// alone keeps it converged, just slower.
-			s.log.Warn().Str("venue", string(v.ID)).Msg("no private stream configured")
+			s.log.Warn().Str("venue", string(v.ID())).Msg("no private stream configured")
 			continue
 		}
 		g.Go(func() error { return s.consumeStream(ctx, v) })
@@ -274,14 +269,15 @@ func (s *Service) Run(ctx context.Context) error {
 	return g.Wait()
 }
 
-func (s *Service) consumeStream(ctx context.Context, v Venue) error {
+func (s *Service) consumeStream(ctx context.Context, v venue.OrderEntry) error {
+	streamer, _ := v.PrivateEvents()
 	for {
-		events, err := v.Streamer.StreamOrderEvents(ctx)
+		events, err := streamer.StreamOrderEvents(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
-			s.log.Error().Str("venue", string(v.ID)).Err(err).Msg("order stream failed to start")
+			s.log.Error().Str("venue", string(v.ID())).Err(err).Msg("order stream failed to start")
 			select {
 			case <-ctx.Done():
 				return nil
@@ -297,7 +293,7 @@ func (s *Service) consumeStream(ctx context.Context, v Venue) error {
 		if ctx.Err() != nil {
 			return nil
 		}
-		s.log.Warn().Str("venue", string(v.ID)).Msg("order stream ended; restarting")
+		s.log.Warn().Str("venue", string(v.ID())).Msg("order stream ended; restarting")
 	}
 }
 

@@ -21,18 +21,18 @@ func TestTradingDisabledBuildsNoTradingHooks(t *testing.T) {
 	t.Parallel()
 	eventBus := bus.NewInProc()
 	t.Cleanup(eventBus.Close)
-	products, err := newExchangeProducts(
+	catalog, err := newVenueCatalog(
 		config.Config{},
 		log.Nop(),
 		eventBus,
 		clockwork.NewFakeClockAt(time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)),
 	)
-	if err != nil || len(products.Trading) != 0 {
-		t.Fatalf("products=%+v err=%v", products, err)
+	if err != nil || len(catalog.OrderEntries()) != 0 {
+		t.Fatalf("catalog=%+v err=%v", catalog, err)
 	}
 	lifecycle := &hookRecorder{}
-	startReconcileService(lifecycle, nil, nil, log.Nop(), nil)
-	startOrderService(lifecycle, nil, nil, nil, log.Nop(), nil)
+	startReconcileService(lifecycle, catalog, nil, log.Nop(), nil)
+	startOrderService(lifecycle, catalog, nil, nil, log.Nop(), nil)
 	if len(lifecycle.hooks) != 0 {
 		t.Fatalf("registered %d trading hooks while disabled", len(lifecycle.hooks))
 	}

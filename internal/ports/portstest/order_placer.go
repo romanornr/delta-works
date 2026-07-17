@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
 	"github.com/romanornr/delta-works/internal/domain/instrument"
@@ -16,22 +17,24 @@ import (
 	"github.com/romanornr/delta-works/internal/ports"
 )
 
-// Fixture declares venue capabilities and hard safety bounds for an order test.
+// Fixture declares venue execution limits and a hard safety bound for an order test.
 type Fixture struct {
-	Instrument          instrument.Instrument
-	MinQty              decimal.Decimal
-	MinNotional         decimal.Decimal
-	NonMarketablePrice  func(context.Context) (decimal.Decimal, error)
-	EchoesClientOrderID bool
-	Deadline            time.Duration
-	Cleanup             func(context.Context, ports.OrderPlacer, []order.Ref) error
+	Instrument                       instrument.Instrument
+	PriceIncrement, QtyIncrement     decimal.Decimal
+	MinQty, MinNotional, MaxNotional decimal.Decimal
+	NonMarketablePrice               func(context.Context) (decimal.Decimal, error)
+	EchoesClientOrderID              bool
+	Deadline                         time.Duration
+	Cleanup                          func(context.Context, ports.OrderPlacer, []order.Ref) error
 }
 
 // RunOrderPlacerContract verifies lookup, listing, and client-ID idempotency.
 func RunOrderPlacerContract(t *testing.T, placer ports.OrderPlacer, fixture Fixture) {
 	t.Helper()
-	if fixture.Cleanup == nil || fixture.NonMarketablePrice == nil || fixture.Deadline <= 0 {
-		t.Fatal("order placer fixture requires Cleanup, NonMarketablePrice, and a positive Deadline")
+	if fixture.Cleanup == nil || fixture.NonMarketablePrice == nil || fixture.Deadline <= 0 ||
+		!fixture.PriceIncrement.IsPositive() || !fixture.QtyIncrement.IsPositive() ||
+		!fixture.MinQty.IsPositive() || !fixture.MinNotional.IsPositive() || !fixture.MaxNotional.IsPositive() || fixture.MinNotional.GreaterThan(fixture.MaxNotional) {
+		t.Fatal("order placer fixture requires Cleanup, NonMarketablePrice, positive execution limits, and MinNotional at most MaxNotional")
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), fixture.Deadline)
 	t.Cleanup(cancel)
@@ -44,23 +47,26 @@ func RunOrderPlacerContract(t *testing.T, placer ports.OrderPlacer, fixture Fixt
 		}
 	})
 
-	unknown := order.Ref{Instrument: fixture.Instrument, ClientOrderID: order.ClientOrderID(id.New()), VenueOrderID: "missing"}
+	unknown := order.Ref{Instrument: fixture.Instrument, ClientOrderID: order.ClientOrderID(id.New()), VenueOrderID: uuid.NewString()}
 	if _, err := placer.GetOrder(ctx, unknown); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("GetOrder(unknown) error = %v, want ports.ErrNotFound", err)
 	}
-	price, err := fixture.NonMarketablePrice(ctx)
+	rawPrice, err := fixture.NonMarketablePrice(ctx)
 	if err != nil {
 		t.Fatalf("non-marketable price: %v", err)
 	}
-	qty := fixture.MinQty
-	if price.IsPositive() && qty.Mul(price).LessThan(fixture.MinNotional) {
-		qty = fixture.MinNotional.Div(price)
+	priceSteps, _ := rawPrice.QuoRem(fixture.PriceIncrement, 0)
+	price := priceSteps.Mul(fixture.PriceIncrement)
+	if !price.IsPositive() {
+		t.Fatalf("non-marketable price %s is below PriceIncrement %s", rawPrice, fixture.PriceIncrement)
 	}
+	qtySteps, _ := fixture.MaxNotional.QuoRem(price.Mul(fixture.QtyIncrement), 0)
+	qty := qtySteps.Mul(fixture.QtyIncrement)
 	request := order.Request{
-		ClientOrderID: order.ClientOrderID(id.New()), BotID: "contract",
-		Instrument: fixture.Instrument, Side: order.Buy, Type: order.Limit,
-		Price: price, Qty: qty,
+		ClientOrderID: order.ClientOrderID(id.New()), BotID: "contract", Instrument: fixture.Instrument,
+		Side: order.Buy, Type: order.Limit, Price: price, Qty: qty,
 	}
+	requireSafeRequest(t, request, fixture)
 	ack, err := placer.PlaceOrder(ctx, request)
 	if err != nil {
 		t.Fatalf("first PlaceOrder: %v", err)
@@ -91,6 +97,18 @@ func RunOrderPlacerContract(t *testing.T, placer ports.OrderPlacer, fixture Fixt
 	}
 	if matches != 1 {
 		t.Fatalf("OpenOrders contains %d matching orders after duplicate placement, want 1", matches)
+	}
+}
+
+func requireSafeRequest(t *testing.T, request order.Request, fixture Fixture) {
+	t.Helper()
+	notional := request.Price.Mul(request.Qty)
+	if request.Qty.LessThan(fixture.MinQty) || notional.LessThan(fixture.MinNotional) {
+		t.Fatalf("no quantized order fits fixture limits: price %s @ %s, quantity %s @ %s, notional %s; require quantity >= %s, notional >= %s, MaxNotional %s",
+			request.Price, fixture.PriceIncrement, request.Qty, fixture.QtyIncrement, notional, fixture.MinQty, fixture.MinNotional, fixture.MaxNotional)
+	}
+	if notional.GreaterThan(fixture.MaxNotional) {
+		t.Fatalf("order notional %s exceeds safety cap %s", notional, fixture.MaxNotional)
 	}
 }
 

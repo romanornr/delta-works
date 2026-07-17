@@ -16,7 +16,6 @@ var (
 	ErrAuth               = errors.New("authentication failed")
 	ErrRateLimited        = errors.New("rate limited by venue")
 	ErrUnsupportedAccount = errors.New("unsupported account type")
-	ErrTradingUnsupported = errors.New("venue adapter does not support trading")
 )
 
 // MarketDataReader provides public market data.
@@ -28,13 +27,4 @@ type MarketDataReader interface {
 // AccountReader provides private account data.
 type AccountReader interface {
 	Balances(ctx context.Context, acct account.Type) ([]account.Balance, error)
-}
-
-// Exchange is one venue connection. Trading capability lives in a separate
-// port (see trading.go) so read-only consumers can never place orders by
-// accident.
-type Exchange interface {
-	ID() instrument.VenueID
-	MarketDataReader
-	AccountReader
 }

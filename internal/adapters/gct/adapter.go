@@ -21,13 +21,16 @@ import (
 	"github.com/romanornr/delta-works/internal/ports"
 )
 
-// Exchange implements ports.Exchange over one GCT exchange.
+// Exchange implements the synchronous venue ports over one GCT exchange.
 type Exchange struct {
 	id   instrument.VenueID
 	exch gctexchange.IBotExchange
 }
 
-var _ ports.Exchange = (*Exchange)(nil)
+var (
+	_ ports.AccountReader    = (*Exchange)(nil)
+	_ ports.MarketDataReader = (*Exchange)(nil)
+)
 
 // New instantiates and configures a GCT exchange for the named venue.
 // Credentials are optional; without them only public endpoints work.
@@ -70,7 +73,7 @@ func enableWebsocket(defaultCfg *gctconfig.Exchange) {
 	}
 }
 
-// ID implements ports.Exchange.
+// ID returns the configured venue identity.
 func (e *Exchange) ID() instrument.VenueID { return e.id }
 
 // Ticker implements ports.MarketDataReader.
