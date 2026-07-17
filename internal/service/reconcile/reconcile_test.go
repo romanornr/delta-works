@@ -89,44 +89,33 @@ type appliedEvent struct {
 }
 
 type fakeStore struct {
-	mu         sync.Mutex
-	active     []ports.StoredOrder
-	listErr    error
-	stored     ports.StoredOrder
-	getErr     error
-	applyErr   error
-	decision   domain.Decision
-	ledgerNote ports.LedgerNote
-	applied    []appliedEvent
+	mu       sync.Mutex
+	active   []domain.Record
+	listErr  error
+	stored   domain.Record
+	getErr   error
+	applyErr error
+	result   domain.ApplyResult
+	applied  []appliedEvent
 }
 
-func (*fakeStore) CreatePending(context.Context, domain.Request) (bool, error) { return true, nil }
-
-func (*fakeStore) ListOrders(context.Context, ports.OrderFilter) ([]ports.StoredOrder, error) {
-	return nil, nil
-}
-
-func (f *fakeStore) ApplyEvent(_ context.Context, source domain.Source, event domain.Event) (domain.Decision, ports.LedgerNote, error) {
+func (f *fakeStore) ApplyEvent(_ context.Context, source domain.Source, event domain.Event) (domain.ApplyResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.applied = append(f.applied, appliedEvent{source: source, event: event})
-	return f.decision, f.ledgerNote, f.applyErr
+	return f.result, f.applyErr
 }
 
-func (f *fakeStore) GetOrder(context.Context, domain.ClientOrderID) (ports.StoredOrder, error) {
+func (f *fakeStore) GetOrder(context.Context, domain.ClientOrderID) (domain.Record, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.stored, f.getErr
 }
 
-func (f *fakeStore) ListActiveOrders(context.Context, instrument.VenueID) ([]ports.StoredOrder, error) {
+func (f *fakeStore) ListActiveOrders(context.Context, instrument.VenueID) ([]domain.Record, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]ports.StoredOrder(nil), f.active...), f.listErr
-}
-
-func (*fakeStore) MarkCancelRequested(context.Context, domain.ClientOrderID, time.Time) error {
-	return nil
+	return append([]domain.Record(nil), f.active...), f.listErr
 }
 
 func (f *fakeStore) appliedEvents() []appliedEvent {
@@ -183,15 +172,15 @@ func testInstrument() instrument.Instrument {
 	}
 }
 
-func testStored(status domain.Status, age time.Duration) ports.StoredOrder {
-	return ports.StoredOrder{
+func testStored(status domain.Status, age time.Duration) domain.Record {
+	return domain.Record{
 		ClientOrderID: "cid-1", Instrument: testInstrument(), Status: status,
 		FilledQty: decimal.RequireFromString("0.4"), VenueOrderID: "v-1",
 		CreatedAt: testStart.Add(-age),
 	}
 }
 
-func pendingStored(venueOrderID string) ports.StoredOrder {
+func pendingStored(venueOrderID string) domain.Record {
 	stored := testStored(domain.StatusPending, time.Minute)
 	stored.FilledQty = decimal.Zero
 	stored.VenueOrderID = venueOrderID
@@ -216,14 +205,14 @@ func newTestService(t *testing.T, placer *fakePlacer, store *fakeStore) (*Servic
 	}
 	clk := clockwork.NewFakeClockAt(testStart)
 	eventBus := &recordingBus{}
-	service := New([]Venue{{ID: "bybit", Placer: placer}}, store, eventBus, clk, log.Nop(), testInterval, metrics)
+	service := New([]Venue{{ID: "bybit", Placer: placer}}, store, store, eventBus, clk, log.Nop(), testInterval, metrics)
 	return service, clk, metrics, eventBus
 }
 
 func TestPassReconcilesPresentOrders(t *testing.T) {
 	tests := []struct {
 		name        string
-		local       ports.StoredOrder
+		local       domain.Record
 		snapshot    domain.Snapshot
 		wantApplied int
 		wantKind    string
@@ -252,7 +241,7 @@ func TestPassReconcilesPresentOrders(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			placer := &fakePlacer{openOrders: []domain.Snapshot{tt.snapshot}}
-			store := &fakeStore{active: []ports.StoredOrder{tt.local}}
+			store := &fakeStore{active: []domain.Record{tt.local}}
 			service, _, metrics, _ := newTestService(t, placer, store)
 			if err := service.pass(context.Background(), service.venues[0]); err != nil {
 				t.Fatalf("pass: %v", err)
@@ -314,7 +303,7 @@ func TestPendingAbsentRequiresAuthoritativeProof(t *testing.T) {
 			if tt.lookup != nil {
 				placer.getOrders = fakeOrderLookup(storedRef(stored), tt.lookup.snapshot, tt.lookup.err)
 			}
-			store := &fakeStore{active: []ports.StoredOrder{stored}}
+			store := &fakeStore{active: []domain.Record{stored}}
 			service, _, metrics, _ := newTestService(t, placer, store)
 			if err := service.pass(context.Background(), service.venues[0]); err != nil {
 				t.Fatalf("pass: %v", err)
@@ -342,7 +331,7 @@ func TestActiveAbsentAppliesTerminalSnapshot(t *testing.T) {
 	lookup.Ref.VenueOrderID = ""
 	stored := testStored(domain.StatusOpen, time.Minute)
 	placer := &fakePlacer{getOrders: fakeOrderLookup(storedRef(stored), lookup, nil)}
-	store := &fakeStore{active: []ports.StoredOrder{stored}}
+	store := &fakeStore{active: []domain.Record{stored}}
 	service, _, metrics, _ := newTestService(t, placer, store)
 	if err := service.pass(context.Background(), service.venues[0]); err != nil {
 		t.Fatalf("pass: %v", err)
@@ -523,32 +512,31 @@ func waitForGauge(t *testing.T, value func() float64, want float64) {
 	}
 }
 
-func TestFillAnomalyCountsAsDiff(t *testing.T) {
-	placer := &fakePlacer{openOrders: []domain.Snapshot{testSnapshot(domain.StatusCanceled, "0")}}
-	store := &fakeStore{
-		active:   []ports.StoredOrder{testStored(domain.StatusPartiallyFilled, time.Minute)},
-		decision: domain.Decision{Transition: true, To: domain.StatusCanceled, FillAnomaly: true},
+func TestApplyOutcomeCountsAsDiff(t *testing.T) {
+	unmatched := domain.ApplyResult{}
+	unmatched.UnmatchedQty = decimal.RequireFromString("0.1")
+	tests := []struct {
+		name, kind string
+		snapshot   domain.Snapshot
+		result     domain.ApplyResult
+	}{
+		{
+			name: "fill anomaly", snapshot: testSnapshot(domain.StatusCanceled, "0"), kind: "fill_anomaly",
+			result: domain.ApplyResult{Decision: domain.Decision{Transition: true, To: domain.StatusCanceled, FillAnomaly: true}},
+		},
+		{name: "unmatched sell", snapshot: testSnapshot(domain.StatusPartiallyFilled, "0.9"), result: unmatched, kind: "unmatched_sell"},
 	}
-	service, _, metrics, _ := newTestService(t, placer, store)
-	if err := service.pass(context.Background(), service.venues[0]); err != nil {
-		t.Fatalf("pass: %v", err)
-	}
-	if got := testutil.ToFloat64(metrics.diffs.WithLabelValues("bybit", "fill_anomaly")); got != 1 {
-		t.Fatalf("diffs{fill_anomaly} = %v, want 1", got)
-	}
-}
-
-func TestReconcileNoteCounting(t *testing.T) {
-	placer := &fakePlacer{openOrders: []domain.Snapshot{testSnapshot(domain.StatusPartiallyFilled, "0.9")}}
-	store := &fakeStore{
-		active:     []ports.StoredOrder{testStored(domain.StatusPartiallyFilled, time.Minute)},
-		ledgerNote: ports.LedgerNote{UnmatchedQty: decimal.RequireFromString("0.1")},
-	}
-	service, _, metrics, _ := newTestService(t, placer, store)
-	if err := service.pass(context.Background(), service.venues[0]); err != nil {
-		t.Fatalf("pass: %v", err)
-	}
-	if got := testutil.ToFloat64(metrics.diffs.WithLabelValues("bybit", "unmatched_sell")); got != 1 {
-		t.Fatalf("diffs{unmatched_sell} = %v, want 1", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			placer := &fakePlacer{openOrders: []domain.Snapshot{tt.snapshot}}
+			store := &fakeStore{active: []domain.Record{testStored(domain.StatusPartiallyFilled, time.Minute)}, result: tt.result}
+			service, _, metrics, _ := newTestService(t, placer, store)
+			if err := service.pass(context.Background(), service.venues[0]); err != nil {
+				t.Fatalf("pass: %v", err)
+			}
+			if got := testutil.ToFloat64(metrics.diffs.WithLabelValues("bybit", tt.kind)); got != 1 {
+				t.Fatalf("diffs{%s} = %v, want 1", tt.kind, got)
+			}
+		})
 	}
 }

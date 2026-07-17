@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/shopspring/decimal"
+
+	"github.com/romanornr/delta-works/internal/domain/ledger"
 )
 
 // The state machine is specified in docs/specs/manual-trading.md. Statuses have a
@@ -59,6 +61,13 @@ type Decision struct {
 	FillDelta   decimal.Decimal // positive: record a fill of this quantity
 	FillAnomaly bool            // a rank-advancing event carried a regressed cumulative fill; the status applied, the fill claim was rejected
 	Drop        DropReason      // set when the status change was not applied
+}
+
+// ApplyResult combines a state decision with its persisted ledger effects.
+type ApplyResult struct {
+	Decision
+	ledger.Outcome
+	FillConflict bool
 }
 
 // Transition decides how a venue event applies to the stored state. It is

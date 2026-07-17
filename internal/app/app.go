@@ -61,7 +61,10 @@ func New(configPath string, configExplicit bool) *fx.App {
 			newPostgres,
 			fx.Annotate(postgres.NewCheckpointStore, fx.As(new(ports.CheckpointStore))),
 			fx.Annotate(postgres.NewOutboxStore, fx.As(new(ports.OutboxStore))),
-			fx.Annotate(postgres.NewOrderStore, fx.As(new(ports.OrderStore))),
+			fx.Annotate(postgres.NewOrderStore, fx.As(
+				new(ports.OrderCommandStore), new(ports.OrderEventStore),
+				new(ports.OrderReconcileStore), new(ports.OrderQueryStore),
+			)),
 			newQuestDB,
 			fx.Annotate(postgres.NewHealth, fx.As(new(ports.HealthChecker)), fx.ResultTags(`group:"health"`)),
 			fx.Annotate(newQuestDBHealth, fx.As(new(ports.HealthChecker)), fx.ResultTags(`group:"health"`)),
@@ -131,20 +134,20 @@ func newExchangeProducts(cfg config.Config, l log.Logger, eventBus bus.Bus, clk 
 	return exchangeProducts{Registry: exchange.NewRegistry(exchanges), Trading: trading}, nil
 }
 
-func newOrderService(cfg config.Config, venues []tradingVenue, store ports.OrderStore, clk clockwork.Clock, l log.Logger, m *orderservice.Metrics) *orderservice.Service {
+func newOrderService(cfg config.Config, venues []tradingVenue, commands ports.OrderCommandStore, events ports.OrderEventStore, clk clockwork.Clock, l log.Logger, m *orderservice.Metrics) *orderservice.Service {
 	converted := make([]orderservice.Venue, 0, len(venues))
 	for _, venue := range venues {
 		converted = append(converted, orderservice.Venue(venue))
 	}
-	return orderservice.New(converted, store, clk, l, cfg.Order.SubmitBudget, m)
+	return orderservice.New(converted, commands, events, clk, l, cfg.Order.SubmitBudget, m)
 }
 
-func newReconcileService(cfg config.Config, venues []tradingVenue, store ports.OrderStore, eventBus bus.Bus, clk clockwork.Clock, l log.Logger, m *reconcile.Metrics) *reconcile.Service {
+func newReconcileService(cfg config.Config, venues []tradingVenue, orders ports.OrderReconcileStore, events ports.OrderEventStore, eventBus bus.Bus, clk clockwork.Clock, l log.Logger, m *reconcile.Metrics) *reconcile.Service {
 	converted := make([]reconcile.Venue, 0, len(venues))
 	for _, venue := range venues {
 		converted = append(converted, reconcile.Venue{ID: venue.ID, Placer: venue.Placer})
 	}
-	return reconcile.New(converted, store, eventBus, clk, l, cfg.Reconcile.Interval, m)
+	return reconcile.New(converted, orders, events, eventBus, clk, l, cfg.Reconcile.Interval, m)
 }
 
 func newPostgres(lc fx.Lifecycle, cfg config.Config) (*pgxpool.Pool, error) {

@@ -15,7 +15,6 @@ import (
 
 	"github.com/romanornr/delta-works/internal/domain/order"
 	"github.com/romanornr/delta-works/internal/id"
-	"github.com/romanornr/delta-works/internal/ports"
 )
 
 func newLedgerOrder(
@@ -56,13 +55,13 @@ func applyLedgerEvent(
 	store *OrderStore,
 	source order.Source,
 	event order.Event,
-) (order.Decision, ports.LedgerNote) {
+) order.ApplyResult {
 	t.Helper()
-	decision, note, err := store.ApplyEvent(ctx, source, event)
+	result, err := store.ApplyEvent(ctx, source, event)
 	if err != nil {
 		t.Fatalf("ApplyEvent: %v", err)
 	}
-	return decision, note
+	return result
 }
 
 func TestOrderStoreLedgerPosting(t *testing.T) {
@@ -78,15 +77,14 @@ func TestOrderStoreLedgerPosting(t *testing.T) {
 		req := newLedgerOrder(ctx, t, store, "buy-replay", order.Buy, "1")
 		at := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
 		event := ledgerEvent(req, order.StatusFilled, "1", "50000", "buy-replay-fill", at)
-		_, note := applyLedgerEvent(ctx, t, store, order.SourceStream, event)
-		if note.OpenedLotID == "" || note.UnmatchedQty.IsPositive() {
-			t.Fatalf("LedgerNote = %+v", note)
-		}
+		applyLedgerEvent(ctx, t, store, order.SourceStream, event)
 
 		var qty, remaining, cost decimal.Decimal
 		var openedAt time.Time
 		if err := pool.QueryRow(ctx, `
-SELECT qty, remaining_qty, cost_price, opened_at FROM lots WHERE id=$1`, note.OpenedLotID).
+	SELECT l.qty, l.remaining_qty, l.cost_price, l.opened_at
+	FROM lots l JOIN fills f ON f.id=l.opened_by_fill_id
+	WHERE f.client_order_id=$1`, string(req.ClientOrderID)).
 			Scan(&qty, &remaining, &cost, &openedAt); err != nil {
 			t.Fatalf("query lot: %v", err)
 		}
@@ -95,10 +93,7 @@ SELECT qty, remaining_qty, cost_price, opened_at FROM lots WHERE id=$1`, note.Op
 			t.Fatalf("lot qty=%s remaining=%s cost=%s opened=%v", qty, remaining, cost, openedAt)
 		}
 		outboxBefore := countRows(ctx, t, pool, "SELECT COUNT(*) FROM outbox")
-		_, replayNote := applyLedgerEvent(ctx, t, store, order.SourceStream, event)
-		if replayNote.OpenedLotID != "" || replayNote.UnmatchedQty.IsPositive() {
-			t.Fatalf("replay LedgerNote = %+v", replayNote)
-		}
+		applyLedgerEvent(ctx, t, store, order.SourceStream, event)
 		if got := countRows(ctx, t, pool, "SELECT COUNT(*) FROM lots WHERE bot_id=$1", req.BotID); got != 1 {
 			t.Fatalf("lots = %d, want 1", got)
 		}
@@ -119,22 +114,17 @@ SELECT qty, remaining_qty, cost_price, opened_at FROM lots WHERE id=$1`, note.Op
 		first := ledgerEvent(req, order.StatusPartiallyFilled, "0.4", "100", "reused-fill", at)
 		first.Fee = decimal.RequireFromString("0.01")
 		first.FeeCurrency = "USDT"
-		_, firstNote := applyLedgerEvent(ctx, t, store, order.SourceStream, first)
+		firstResult := applyLedgerEvent(ctx, t, store, order.SourceStream, first)
 		assertBuyOrderAccounting(ctx, t, pool, req.ClientOrderID, "0.4")
 
 		second := ledgerEvent(req, order.StatusFilled, "1", "110", "reused-fill", at.Add(time.Minute))
 		second.Fee = decimal.RequireFromString("0.02")
 		second.FeeCurrency = "USDT"
-		_, secondNote := applyLedgerEvent(ctx, t, store, order.SourceStream, second)
+		secondResult := applyLedgerEvent(ctx, t, store, order.SourceStream, second)
 		assertBuyOrderAccounting(ctx, t, pool, req.ClientOrderID, "1")
 
-		for _, note := range []ports.LedgerNote{firstNote, secondNote} {
-			if note.OpenedLotID == "" {
-				t.Fatalf("LedgerNote = %+v, want opened lot", note)
-			}
-		}
-		if firstNote.FillConflict || !secondNote.FillConflict {
-			t.Fatalf("fill conflicts: first=%t second=%t, want false/true", firstNote.FillConflict, secondNote.FillConflict)
+		if firstResult.FillConflict || !secondResult.FillConflict {
+			t.Fatalf("fill conflicts: first=%t second=%t, want false/true", firstResult.FillConflict, secondResult.FillConflict)
 		}
 
 		rows, err := pool.Query(ctx, `
@@ -207,29 +197,31 @@ ORDER BY id DESC LIMIT 1`, string(req.ClientOrderID)).Scan(&body); err != nil {
 		second := newLedgerOrder(ctx, t, store, bot, order.Buy, "3")
 		firstAt := time.Date(2026, 7, 12, 11, 0, 0, 0, time.UTC)
 		secondAt := firstAt.Add(time.Minute)
-		_, firstNote := applyLedgerEvent(ctx, t, store, order.SourceStream,
+		applyLedgerEvent(ctx, t, store, order.SourceStream,
 			ledgerEvent(first, order.StatusFilled, "2", "100", "fifo-buy-1", firstAt))
-		_, secondNote := applyLedgerEvent(ctx, t, store, order.SourceStream,
+		applyLedgerEvent(ctx, t, store, order.SourceStream,
 			ledgerEvent(second, order.StatusFilled, "3", "110", "fifo-buy-2", secondAt))
 
 		sell := newLedgerOrder(ctx, t, store, bot, order.Sell, "4")
 		sellAt := secondAt.Add(time.Minute)
-		_, note := applyLedgerEvent(ctx, t, store, order.SourceStream,
+		result := applyLedgerEvent(ctx, t, store, order.SourceStream,
 			ledgerEvent(sell, order.StatusFilled, "4", "120", "fifo-sell", sellAt))
-		if note.OpenedLotID != "" || note.UnmatchedQty.IsPositive() {
-			t.Fatalf("sell LedgerNote = %+v", note)
+		if result.UnmatchedQty.IsPositive() {
+			t.Fatalf("sell outcome = %+v", result.Outcome)
 		}
 
 		rows, err := pool.Query(ctx, `
-SELECT lot_id, qty, price, closed_at
-FROM lot_closures
-WHERE sell_fill_id = (SELECT id FROM fills WHERE client_order_id=$1)
-ORDER BY id`, string(sell.ClientOrderID))
+SELECT opening.client_order_id, c.qty, c.price, c.closed_at
+FROM lot_closures c
+JOIN lots l ON l.id=c.lot_id
+JOIN fills opening ON opening.id=l.opened_by_fill_id
+WHERE c.sell_fill_id = (SELECT id FROM fills WHERE client_order_id=$1)
+ORDER BY c.id`, string(sell.ClientOrderID))
 		if err != nil {
 			t.Fatalf("query closures: %v", err)
 		}
 		defer rows.Close()
-		wantIDs := []string{firstNote.OpenedLotID, secondNote.OpenedLotID}
+		wantIDs := []string{string(first.ClientOrderID), string(second.ClientOrderID)}
 		wantQty := []decimal.Decimal{decimal.NewFromInt(2), decimal.NewFromInt(2)}
 		i := 0
 		for rows.Next() {
@@ -251,8 +243,8 @@ ORDER BY id`, string(sell.ClientOrderID))
 		if i != 2 {
 			t.Fatalf("closures = %d, want 2", i)
 		}
-		assertLotState(ctx, t, pool, firstNote.OpenedLotID, "0", "closed", sellAt)
-		assertLotState(ctx, t, pool, secondNote.OpenedLotID, "1", "open", time.Time{})
+		assertLotState(ctx, t, pool, first.ClientOrderID, "0", "closed", sellAt)
+		assertLotState(ctx, t, pool, second.ClientOrderID, "1", "open", time.Time{})
 	})
 
 	for _, tt := range []struct {
@@ -270,15 +262,15 @@ ORDER BY id`, string(sell.ClientOrderID))
 			}
 			sell := newLedgerOrder(ctx, t, store, tt.bot, order.Sell, tt.sellQty)
 			event := ledgerEvent(sell, order.StatusFilled, tt.sellQty, "120", tt.bot+"-sell", at.Add(time.Minute))
-			_, note := applyLedgerEvent(ctx, t, store, order.SourceStream, event)
+			result := applyLedgerEvent(ctx, t, store, order.SourceStream, event)
 			want := decimal.RequireFromString(tt.wantUnmatched)
-			if !note.UnmatchedQty.Equal(want) || note.OpenedLotID != "" {
-				t.Fatalf("LedgerNote = %+v, want unmatched %s", note, want)
+			if !result.UnmatchedQty.Equal(want) {
+				t.Fatalf("ledger outcome = %+v, want unmatched %s", result.Outcome, want)
 			}
 			assertUnmatchedEvent(ctx, t, pool, sell, want)
-			_, replayNote := applyLedgerEvent(ctx, t, store, order.SourceStream, event)
-			if replayNote.OpenedLotID != "" || replayNote.UnmatchedQty.IsPositive() {
-				t.Fatalf("replay LedgerNote = %+v", replayNote)
+			replay := applyLedgerEvent(ctx, t, store, order.SourceStream, event)
+			if replay.UnmatchedQty.IsPositive() {
+				t.Fatalf("replay ledger outcome = %+v", replay.Outcome)
 			}
 			assertUnmatchedEvent(ctx, t, pool, sell, want)
 		})
@@ -288,16 +280,10 @@ ORDER BY id`, string(sell.ClientOrderID))
 		req := newLedgerOrder(ctx, t, store, "reconcile", order.Buy, "2")
 		at := time.Date(2026, 7, 12, 13, 0, 0, 0, time.UTC)
 		first := ledgerEvent(req, order.StatusPartiallyFilled, "1", "100", "", at)
-		_, firstNote := applyLedgerEvent(ctx, t, store, order.SourceReconcile, first)
-		_, replayNote := applyLedgerEvent(ctx, t, store, order.SourceReconcile, first)
-		if firstNote.OpenedLotID == "" || replayNote.OpenedLotID != "" {
-			t.Fatalf("first note=%+v replay note=%+v", firstNote, replayNote)
-		}
+		applyLedgerEvent(ctx, t, store, order.SourceReconcile, first)
+		applyLedgerEvent(ctx, t, store, order.SourceReconcile, first)
 		second := ledgerEvent(req, order.StatusPartiallyFilled, "2", "110", "", at.Add(time.Minute))
-		_, secondNote := applyLedgerEvent(ctx, t, store, order.SourceReconcile, second)
-		if secondNote.OpenedLotID == "" || secondNote.OpenedLotID == firstNote.OpenedLotID {
-			t.Fatalf("second note=%+v first note=%+v", secondNote, firstNote)
-		}
+		applyLedgerEvent(ctx, t, store, order.SourceReconcile, second)
 		if got := countRows(ctx, t, pool, "SELECT COUNT(*) FROM fills WHERE client_order_id=$1", string(req.ClientOrderID)); got != 2 {
 			t.Fatalf("fills = %d, want 2", got)
 		}
@@ -311,11 +297,8 @@ ORDER BY id`, string(sell.ClientOrderID))
 		at := time.Date(2026, 7, 12, 14, 0, 0, 0, time.UTC)
 		applyLedgerEvent(ctx, t, store, order.SourceStream,
 			ledgerEvent(req, order.StatusPartiallyFilled, "1", "100", "cancel-fill-1", at))
-		_, note := applyLedgerEvent(ctx, t, store, order.SourceStream,
+		applyLedgerEvent(ctx, t, store, order.SourceStream,
 			ledgerEvent(req, order.StatusCanceled, "2", "110", "cancel-fill-2", at.Add(time.Minute)))
-		if note.OpenedLotID == "" {
-			t.Fatal("canceled fill did not open a lot")
-		}
 		stored, err := store.GetOrder(ctx, req.ClientOrderID)
 		if err != nil || stored.Status != order.StatusCanceled || !stored.FilledQty.Equal(decimal.NewFromInt(2)) {
 			t.Fatalf("GetOrder = %+v, err=%v", stored, err)
@@ -331,10 +314,12 @@ WHERE tr.client_order_id=$1 AND tr.to_status='canceled'`, string(req.ClientOrder
 
 	t.Run("zero price buy opens zero cost lot", func(t *testing.T) {
 		req := newLedgerOrder(ctx, t, store, "zero-price", order.Buy, "1")
-		_, note := applyLedgerEvent(ctx, t, store, order.SourceReconcile,
+		applyLedgerEvent(ctx, t, store, order.SourceReconcile,
 			ledgerEvent(req, order.StatusFilled, "1", "0", "", time.Date(2026, 7, 12, 15, 0, 0, 0, time.UTC)))
 		var cost decimal.Decimal
-		if err := pool.QueryRow(ctx, "SELECT cost_price FROM lots WHERE id=$1", note.OpenedLotID).Scan(&cost); err != nil {
+		if err := pool.QueryRow(ctx, `
+	SELECT l.cost_price FROM lots l JOIN fills f ON f.id=l.opened_by_fill_id
+	WHERE f.client_order_id=$1`, string(req.ClientOrderID)).Scan(&cost); err != nil {
 			t.Fatalf("query cost price: %v", err)
 		}
 		if !cost.IsZero() {
@@ -362,10 +347,7 @@ func TestOrderStoreLedgerConcurrency(t *testing.T) {
 			at := time.Date(2026, 7, 12, 16, 0, i, 0, time.UTC)
 			buyEvent := ledgerEvent(buy, order.StatusFilled, "1", "100", bot+"-buy", at)
 			sellEvent := ledgerEvent(sell, order.StatusFilled, "2", "110", bot+"-sell", at)
-			buyNote, sellNote := applyConcurrently(ctx, t, store, buyEvent, sellEvent)
-			if buyNote.OpenedLotID == "" {
-				t.Fatal("buy did not open a lot")
-			}
+			_, sellResult := applyConcurrently(ctx, t, store, buyEvent, sellEvent)
 			var unmatched decimal.Decimal
 			if err := pool.QueryRow(ctx, `
 SELECT qty FROM unmatched_sells
@@ -379,12 +361,14 @@ WHERE sell_fill_id=(SELECT id FROM fills WHERE client_order_id=$1)`, string(sell
 				t.Fatalf("query closures: %v", err)
 			}
 			var remaining decimal.Decimal
-			if err := pool.QueryRow(ctx, "SELECT remaining_qty FROM lots WHERE id=$1", buyNote.OpenedLotID).Scan(&remaining); err != nil {
+			if err := pool.QueryRow(ctx, `
+SELECT l.remaining_qty FROM lots l JOIN fills f ON f.id=l.opened_by_fill_id
+WHERE f.client_order_id=$1`, string(buy.ClientOrderID)).Scan(&remaining); err != nil {
 				t.Fatalf("query lot: %v", err)
 			}
 			if !closed.Add(unmatched).Equal(decimal.NewFromInt(2)) ||
-				!closed.Add(remaining).Equal(decimal.NewFromInt(1)) || !sellNote.UnmatchedQty.Equal(unmatched) {
-				t.Fatalf("closed=%s unmatched=%s remaining=%s note=%+v", closed, unmatched, remaining, sellNote)
+				!closed.Add(remaining).Equal(decimal.NewFromInt(1)) || !sellResult.UnmatchedQty.Equal(unmatched) {
+				t.Fatalf("closed=%s unmatched=%s remaining=%s outcome=%+v", closed, unmatched, remaining, sellResult.Outcome)
 			}
 		})
 	}
@@ -394,7 +378,7 @@ WHERE sell_fill_id=(SELECT id FROM fills WHERE client_order_id=$1)`, string(sell
 			bot := "parallel-sells-" + id.New()
 			buy := newLedgerOrder(ctx, t, store, bot, order.Buy, "1")
 			at := time.Date(2026, 7, 12, 17, 0, 0, 0, time.UTC)
-			_, buyNote := applyLedgerEvent(ctx, t, store, order.SourceStream,
+			applyLedgerEvent(ctx, t, store, order.SourceStream,
 				ledgerEvent(buy, order.StatusFilled, "1", "100", bot+"-buy", at))
 			first := newLedgerOrder(ctx, t, store, bot, order.Sell, "1")
 			second := newLedgerOrder(ctx, t, store, bot, order.Sell, "1")
@@ -402,7 +386,11 @@ WHERE sell_fill_id=(SELECT id FROM fills WHERE client_order_id=$1)`, string(sell
 			secondEvent := ledgerEvent(second, order.StatusFilled, "1", "110", bot+"-sell-2", at.Add(time.Minute))
 			_, _ = applyConcurrently(ctx, t, store, firstEvent, secondEvent)
 			var closed decimal.Decimal
-			if err := pool.QueryRow(ctx, "SELECT COALESCE(SUM(qty), 0) FROM lot_closures WHERE lot_id=$1", buyNote.OpenedLotID).Scan(&closed); err != nil {
+			if err := pool.QueryRow(ctx, `
+SELECT COALESCE(SUM(c.qty), 0)
+FROM lot_closures c JOIN lots l ON l.id=c.lot_id
+JOIN fills f ON f.id=l.opened_by_fill_id
+WHERE f.client_order_id=$1`, string(buy.ClientOrderID)).Scan(&closed); err != nil {
 				t.Fatalf("query closures: %v", err)
 			}
 			if closed.GreaterThan(decimal.NewFromInt(1)) || !closed.Equal(decimal.NewFromInt(1)) {
@@ -422,10 +410,10 @@ func applyConcurrently(
 	t *testing.T,
 	store *OrderStore,
 	first, second order.Event,
-) (ports.LedgerNote, ports.LedgerNote) {
+) (order.ApplyResult, order.ApplyResult) {
 	t.Helper()
 	start := make(chan struct{})
-	var notes [2]ports.LedgerNote
+	var results [2]order.ApplyResult
 	var errs [2]error
 	var wg sync.WaitGroup
 	for i, event := range []order.Event{first, second} {
@@ -433,7 +421,7 @@ func applyConcurrently(
 		go func() {
 			defer wg.Done()
 			<-start
-			_, notes[i], errs[i] = store.ApplyEvent(ctx, order.SourceStream, event)
+			results[i], errs[i] = store.ApplyEvent(ctx, order.SourceStream, event)
 		}()
 	}
 	close(start)
@@ -443,32 +431,36 @@ func applyConcurrently(
 			t.Fatalf("concurrent ApplyEvent: %v", err)
 		}
 	}
-	return notes[0], notes[1]
+	return results[0], results[1]
 }
 
 func assertLotState(
 	ctx context.Context,
 	t *testing.T,
 	pool *pgxpool.Pool,
-	lotID, wantRemaining, wantStatus string,
+	clientOrderID order.ClientOrderID,
+	wantRemaining, wantStatus string,
 	wantClosedAt time.Time,
 ) {
 	t.Helper()
 	var remaining decimal.Decimal
 	var status string
 	var closedAt pgtype.Timestamptz
-	if err := pool.QueryRow(ctx, "SELECT remaining_qty, status, closed_at FROM lots WHERE id=$1", lotID).
+	if err := pool.QueryRow(ctx, `
+SELECT l.remaining_qty, l.status, l.closed_at
+FROM lots l JOIN fills f ON f.id=l.opened_by_fill_id
+WHERE f.client_order_id=$1`, string(clientOrderID)).
 		Scan(&remaining, &status, &closedAt); err != nil {
 		t.Fatalf("query lot state: %v", err)
 	}
 	if !remaining.Equal(decimal.RequireFromString(wantRemaining)) || status != wantStatus {
-		t.Fatalf("lot %s remaining=%s status=%s", lotID, remaining, status)
+		t.Fatalf("lot for order %s remaining=%s status=%s", clientOrderID, remaining, status)
 	}
 	if wantClosedAt.IsZero() && closedAt.Valid {
-		t.Fatalf("open lot %s has closed_at %v", lotID, closedAt.Time)
+		t.Fatalf("open lot for order %s has closed_at %v", clientOrderID, closedAt.Time)
 	}
 	if !wantClosedAt.IsZero() && (!closedAt.Valid || !closedAt.Time.Equal(wantClosedAt)) {
-		t.Fatalf("closed lot %s closed_at=%v valid=%v, want %v", lotID, closedAt.Time, closedAt.Valid, wantClosedAt)
+		t.Fatalf("closed lot for order %s closed_at=%v valid=%v, want %v", clientOrderID, closedAt.Time, closedAt.Valid, wantClosedAt)
 	}
 }
 

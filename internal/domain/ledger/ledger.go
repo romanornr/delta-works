@@ -35,6 +35,11 @@ type Allocation struct {
 	Unmatched decimal.Decimal
 }
 
+// Outcome reports the observable result of applying a fill to the ledger.
+type Outcome struct {
+	UnmatchedQty decimal.Decimal
+}
+
 // LotSelector decides which open lots a sell fill closes. Pure: same
 // inputs, same answer, input slice never mutated. sellQty must be
 // positive; the caller validates before selecting.

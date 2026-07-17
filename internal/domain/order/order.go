@@ -59,6 +59,26 @@ type Request struct {
 	Qty           decimal.Decimal
 }
 
+// Record is persisted order state; zero AvgFillPrice, VenueOrderID, and CancelRequestedAt mean unknown.
+type Record struct {
+	ClientOrderID                           ClientOrderID
+	BotID, VenueOrderID, Reason             string
+	Instrument                              instrument.Instrument
+	Side                                    Side
+	Type                                    Type
+	Price, Qty, FilledQty, AvgFillPrice     decimal.Decimal
+	Status                                  Status
+	CancelRequestedAt, CreatedAt, UpdatedAt time.Time
+}
+
+// Query selects one keyset-paginated order page.
+type Query struct {
+	Venue, BotID, CursorID *string
+	Statuses               []string
+	Limit                  int32
+	CursorCreatedAt        *time.Time
+}
+
 // Ref identifies an order at a venue.
 type Ref struct {
 	Instrument    instrument.Instrument

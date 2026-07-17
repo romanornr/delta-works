@@ -30,7 +30,12 @@ type OrderStore struct {
 	selector ledger.LotSelector
 }
 
-var _ ports.OrderStore = (*OrderStore)(nil)
+var (
+	_ ports.OrderCommandStore   = (*OrderStore)(nil)
+	_ ports.OrderEventStore     = (*OrderStore)(nil)
+	_ ports.OrderReconcileStore = (*OrderStore)(nil)
+	_ ports.OrderQueryStore     = (*OrderStore)(nil)
+)
 
 // NewOrderStore returns an OrderStore backed by pool.
 func NewOrderStore(pool *pgxpool.Pool) *OrderStore {
@@ -62,48 +67,48 @@ func (s *OrderStore) CreatePending(ctx context.Context, req order.Request) (bool
 // ApplyEvent locks the order row, decides via the domain state machine,
 // and persists whatever the decision carries. Dropped state events write
 // nothing unless they supply a missing venue order ID.
-func (s *OrderStore) ApplyEvent(ctx context.Context, source order.Source, ev order.Event) (order.Decision, ports.LedgerNote, error) {
+func (s *OrderStore) ApplyEvent(ctx context.Context, source order.Source, ev order.Event) (order.ApplyResult, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return order.Decision{}, ports.LedgerNote{}, fmt.Errorf("postgres: begin apply event: %w", err)
+		return order.ApplyResult{}, fmt.Errorf("postgres: begin apply event: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	q := s.q.WithTx(tx)
 	row, err := q.GetOrderForUpdate(ctx, string(ev.Ref.ClientOrderID))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return order.Decision{}, ports.LedgerNote{}, ports.ErrNotFound
+		return order.ApplyResult{}, ports.ErrNotFound
 	}
 	if err != nil {
-		return order.Decision{}, ports.LedgerNote{}, fmt.Errorf("postgres: lock order: %w", err)
+		return order.ApplyResult{}, fmt.Errorf("postgres: lock order: %w", err)
 	}
 
 	decision, err := order.Transition(order.State{Status: order.Status(row.Status), FilledQty: row.FilledQty}, ev)
 	if err != nil {
-		return order.Decision{}, ports.LedgerNote{}, err
+		return order.ApplyResult{}, err
 	}
+	result := order.ApplyResult{Decision: decision}
 	if !decision.Transition && !decision.FillDelta.IsPositive() {
 		// A venue order ID is an identity fact even when the state event drops.
 		adopted, err := adoptVenueOrderID(ctx, q, row, ev.Ref.VenueOrderID)
 		if err != nil {
-			return order.Decision{}, ports.LedgerNote{}, err
+			return order.ApplyResult{}, err
 		}
 		if adopted {
 			if err := tx.Commit(ctx); err != nil {
-				return order.Decision{}, ports.LedgerNote{}, fmt.Errorf("postgres: commit apply event: %w", err)
+				return order.ApplyResult{}, fmt.Errorf("postgres: commit apply event: %w", err)
 			}
 		}
-		return decision, ports.LedgerNote{}, nil
+		return result, nil
 	}
 
-	note, err := s.persistDecision(ctx, q, row, source, ev, decision)
-	if err != nil {
-		return order.Decision{}, ports.LedgerNote{}, err
+	if err := s.persistDecision(ctx, q, row, source, ev, &result); err != nil {
+		return order.ApplyResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return order.Decision{}, ports.LedgerNote{}, fmt.Errorf("postgres: commit apply event: %w", err)
+		return order.ApplyResult{}, fmt.Errorf("postgres: commit apply event: %w", err)
 	}
-	return decision, note, nil
+	return result, nil
 }
 
 func adoptVenueOrderID(ctx context.Context, q *sqlcgen.Queries, row sqlcgen.Order, venueOrderID string) (bool, error) {
@@ -119,7 +124,8 @@ func adoptVenueOrderID(ctx context.Context, q *sqlcgen.Queries, row sqlcgen.Orde
 	return true, nil
 }
 
-func (s *OrderStore) persistDecision(ctx context.Context, q *sqlcgen.Queries, row sqlcgen.Order, source order.Source, ev order.Event, decision order.Decision) (ports.LedgerNote, error) {
+func (s *OrderStore) persistDecision(ctx context.Context, q *sqlcgen.Queries, row sqlcgen.Order, source order.Source, ev order.Event, result *order.ApplyResult) error {
+	decision := result.Decision
 	newFilled := row.FilledQty.Add(decision.FillDelta)
 	tr, err := q.InsertTransition(ctx, sqlcgen.InsertTransitionParams{
 		ClientOrderID: row.ClientOrderID,
@@ -131,10 +137,9 @@ func (s *OrderStore) persistDecision(ctx context.Context, q *sqlcgen.Queries, ro
 		OccurredAt:    ev.At.UTC(),
 	})
 	if err != nil {
-		return ports.LedgerNote{}, fmt.Errorf("postgres: insert transition: %w", err)
+		return fmt.Errorf("postgres: insert transition: %w", err)
 	}
 
-	var note ports.LedgerNote
 	if decision.FillDelta.IsPositive() {
 		fillConflict := false
 		fill := sqlcgen.InsertFillParams{
@@ -159,13 +164,13 @@ func (s *OrderStore) persistDecision(ctx context.Context, q *sqlcgen.Queries, ro
 			ev.FeeCurrency = ""
 		}
 		if err != nil {
-			return ports.LedgerNote{}, fmt.Errorf("postgres: insert fill: %w", err)
+			return fmt.Errorf("postgres: insert fill: %w", err)
 		}
-		note, err = s.postLedgerFill(ctx, q, row, ev, decision.FillDelta, fillID)
+		result.Outcome, err = s.postLedgerFill(ctx, q, row, ev, decision.FillDelta, fillID)
 		if err != nil {
-			return ports.LedgerNote{}, err
+			return err
 		}
-		note.FillConflict = fillConflict
+		result.FillConflict = fillConflict
 	}
 
 	if err := q.ApplyOrderUpdate(ctx, sqlcgen.ApplyOrderUpdateParams{
@@ -176,13 +181,13 @@ func (s *OrderStore) persistDecision(ctx context.Context, q *sqlcgen.Queries, ro
 		VenueOrderID:  nullString(ev.Ref.VenueOrderID),
 		Reason:        nullString(ev.Reason),
 	}); err != nil {
-		return ports.LedgerNote{}, fmt.Errorf("postgres: update order: %w", err)
+		return fmt.Errorf("postgres: update order: %w", err)
 	}
 
 	if err := s.insertEventOutbox(ctx, q, row, source, ev, decision, newFilled); err != nil {
-		return ports.LedgerNote{}, err
+		return err
 	}
-	return note, nil
+	return nil
 }
 
 func (s *OrderStore) insertEventOutbox(ctx context.Context, q *sqlcgen.Queries, row sqlcgen.Order, source order.Source, ev order.Event, decision order.Decision, newFilled decimal.Decimal) error {
@@ -264,61 +269,61 @@ func (s *OrderStore) MarkCancelRequested(ctx context.Context, id order.ClientOrd
 }
 
 // GetOrder returns the stored order, or ports.ErrNotFound.
-func (s *OrderStore) GetOrder(ctx context.Context, id order.ClientOrderID) (ports.StoredOrder, error) {
+func (s *OrderStore) GetOrder(ctx context.Context, id order.ClientOrderID) (order.Record, error) {
 	row, err := s.q.GetOrder(ctx, string(id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ports.StoredOrder{}, ports.ErrNotFound
+		return order.Record{}, ports.ErrNotFound
 	}
 	if err != nil {
-		return ports.StoredOrder{}, fmt.Errorf("postgres: get order: %w", err)
+		return order.Record{}, fmt.Errorf("postgres: get order: %w", err)
 	}
-	return storedOrder(row), nil
+	return orderRecord(row), nil
 }
 
 // ListActiveOrders returns every non-terminal order for one venue.
-func (s *OrderStore) ListActiveOrders(ctx context.Context, venue instrument.VenueID) ([]ports.StoredOrder, error) {
+func (s *OrderStore) ListActiveOrders(ctx context.Context, venue instrument.VenueID) ([]order.Record, error) {
 	rows, err := s.q.ListActiveOrders(ctx, string(venue))
 	if err != nil {
 		return nil, fmt.Errorf("postgres: list active orders: %w", err)
 	}
-	orders := make([]ports.StoredOrder, 0, len(rows))
+	orders := make([]order.Record, 0, len(rows))
 	for _, row := range rows {
-		orders = append(orders, storedOrder(row))
+		orders = append(orders, orderRecord(row))
 	}
 	return orders, nil
 }
 
 // ListOrders returns a keyset-paginated order page.
-func (s *OrderStore) ListOrders(ctx context.Context, filter ports.OrderFilter) ([]ports.StoredOrder, error) {
-	statuses := filter.Statuses
+func (s *OrderStore) ListOrders(ctx context.Context, query order.Query) ([]order.Record, error) {
+	statuses := query.Statuses
 	if len(statuses) == 0 {
 		statuses = nil
 	}
 	var cursorCreatedAt pgtype.Timestamptz
-	if filter.CursorCreatedAt != nil {
-		cursorCreatedAt = pgtype.Timestamptz{Time: filter.CursorCreatedAt.UTC(), Valid: true}
+	if query.CursorCreatedAt != nil {
+		cursorCreatedAt = pgtype.Timestamptz{Time: query.CursorCreatedAt.UTC(), Valid: true}
 	}
 	rows, err := s.q.ListOrders(ctx, sqlcgen.ListOrdersParams{
-		Venue: filter.Venue, Statuses: statuses, BotID: filter.BotID,
-		CursorCreatedAt: cursorCreatedAt, CursorID: filter.CursorID,
-		RowLimit: int64(filter.Limit) + 1,
+		Venue: query.Venue, Statuses: statuses, BotID: query.BotID,
+		CursorCreatedAt: cursorCreatedAt, CursorID: query.CursorID,
+		RowLimit: int64(query.Limit) + 1,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("postgres: list orders: %w", err)
 	}
-	orders := make([]ports.StoredOrder, 0, len(rows))
+	orders := make([]order.Record, 0, len(rows))
 	for _, row := range rows {
-		orders = append(orders, storedOrder(row))
+		orders = append(orders, orderRecord(row))
 	}
 	return orders, nil
 }
 
-func storedOrder(row sqlcgen.Order) ports.StoredOrder {
+func orderRecord(row sqlcgen.Order) order.Record {
 	var cancelRequestedAt time.Time
 	if row.CancelRequestedAt.Valid {
 		cancelRequestedAt = row.CancelRequestedAt.Time
 	}
-	return ports.StoredOrder{
+	return order.Record{
 		ClientOrderID: order.ClientOrderID(row.ClientOrderID),
 		BotID:         row.BotID,
 		Instrument: instrument.Instrument{

@@ -47,7 +47,8 @@ type venueLoop struct {
 // Service reconciles active local orders against venue order state.
 type Service struct {
 	venues    []*venueLoop
-	store     ports.OrderStore
+	orders    ports.OrderReconcileStore
+	events    ports.OrderEventStore
 	bus       bus.Bus
 	clk       clockwork.Clock
 	log       log.Logger
@@ -60,7 +61,8 @@ type Service struct {
 // New builds the reconciliation service. Metrics must not be nil.
 func New(
 	venues []Venue,
-	store ports.OrderStore,
+	orders ports.OrderReconcileStore,
+	events ports.OrderEventStore,
 	b bus.Bus,
 	clk clockwork.Clock,
 	logger log.Logger,
@@ -76,7 +78,7 @@ func New(
 		})
 	}
 	return &Service{
-		venues: loops, store: store, bus: b, clk: clk,
+		venues: loops, orders: orders, events: events, bus: b, clk: clk,
 		log: log.Component(logger, "reconcile"), interval: interval, metrics: metrics,
 		ready: make(chan struct{}),
 	}
@@ -151,7 +153,7 @@ func (s *Service) pass(ctx context.Context, v *venueLoop) error {
 		s.log.Error().Str("venue", string(v.ID)).Err(err).Msg("open orders failed")
 		return nil
 	}
-	local, err := s.store.ListActiveOrders(ctx, v.ID)
+	local, err := s.orders.ListActiveOrders(ctx, v.ID)
 	if err != nil {
 		return fmt.Errorf("reconcile store: list active orders: %w", err)
 	}
@@ -183,7 +185,7 @@ func (s *Service) pass(ctx context.Context, v *venueLoop) error {
 func (s *Service) reconcileLocal(
 	ctx context.Context,
 	v Venue,
-	lo ports.StoredOrder,
+	lo domain.Record,
 	venueByClient map[domain.ClientOrderID]domain.Snapshot,
 ) error {
 	if snap, ok := venueByClient[lo.ClientOrderID]; ok {
@@ -203,7 +205,7 @@ func (s *Service) reconcileLocal(
 	return s.reconcileMissingActive(ctx, v, lo)
 }
 
-func (s *Service) reconcilePending(ctx context.Context, v Venue, lo ports.StoredOrder) error {
+func (s *Service) reconcilePending(ctx context.Context, v Venue, lo domain.Record) error {
 	if s.clk.Now().Sub(lo.CreatedAt) < 2*s.interval {
 		return nil
 	}
@@ -226,7 +228,7 @@ func (s *Service) reconcilePending(ctx context.Context, v Venue, lo ports.Stored
 	}
 }
 
-func (s *Service) unresolvedSubmit(venue instrument.VenueID, lo ports.StoredOrder, err error) {
+func (s *Service) unresolvedSubmit(venue instrument.VenueID, lo domain.Record, err error) {
 	s.log.Warn().Str("venue", string(venue)).
 		Str("client_order_id", string(lo.ClientOrderID)).
 		Str("venue_order_id", lo.VenueOrderID).
@@ -235,7 +237,7 @@ func (s *Service) unresolvedSubmit(venue instrument.VenueID, lo ports.StoredOrde
 	s.metrics.observeDiff(venue, "unresolved_submit")
 }
 
-func (s *Service) reconcileMissingActive(ctx context.Context, v Venue, lo ports.StoredOrder) error {
+func (s *Service) reconcileMissingActive(ctx context.Context, v Venue, lo domain.Record) error {
 	snap, err := v.Placer.GetOrder(ctx, storedRef(lo))
 	if err != nil {
 		s.log.Error().Str("venue", string(v.ID)).
@@ -249,7 +251,7 @@ func (s *Service) reconcileMissingActive(ctx context.Context, v Venue, lo ports.
 // withLocalRef restores our identity keys on a point-lookup snapshot; some
 // venues omit the client order ID in single-order responses, and applying
 // an event with an empty key would miss the row it was fetched for.
-func withLocalRef(snap domain.Snapshot, lo ports.StoredOrder) domain.Snapshot {
+func withLocalRef(snap domain.Snapshot, lo domain.Record) domain.Snapshot {
 	snap.Ref.ClientOrderID = lo.ClientOrderID
 	if snap.Ref.VenueOrderID == "" {
 		snap.Ref.VenueOrderID = lo.VenueOrderID
@@ -294,7 +296,7 @@ func (s *Service) isOrphan(ctx context.Context, venue instrument.VenueID, snap d
 	if snap.Ref.ClientOrderID == "" {
 		return true, nil
 	}
-	_, err := s.store.GetOrder(ctx, snap.Ref.ClientOrderID)
+	_, err := s.orders.GetOrder(ctx, snap.Ref.ClientOrderID)
 	switch {
 	case err == nil:
 		s.log.Warn().Str("venue", string(venue)).
@@ -347,7 +349,7 @@ func (s *Service) apply(ctx context.Context, snap domain.Snapshot, reason string
 	if ev.At.IsZero() {
 		ev.At = s.clk.Now()
 	}
-	decision, note, err := s.store.ApplyEvent(ctx, domain.SourceReconcile, ev)
+	result, err := s.events.ApplyEvent(ctx, domain.SourceReconcile, ev)
 	switch {
 	case errors.Is(err, ports.ErrNotFound):
 		s.log.Warn().Str("venue", string(ev.Ref.Instrument.Venue)).
@@ -357,31 +359,31 @@ func (s *Service) apply(ctx context.Context, snap domain.Snapshot, reason string
 	case err != nil:
 		return fmt.Errorf("reconcile store: apply event: %w", err)
 	}
-	if decision.FillAnomaly {
+	if result.FillAnomaly {
 		// A reconciliation-discovered fill regression is a diff in its own
 		// right; stream-path anomalies are counted by the order service.
 		s.metrics.observeDiff(ev.Ref.Instrument.Venue, "fill_anomaly")
 	}
-	if note.UnmatchedQty.IsPositive() {
+	if result.UnmatchedQty.IsPositive() {
 		// Same split as fill anomalies: an oversell first seen by
 		// reconciliation is a reconciliation diff.
 		s.metrics.observeDiff(ev.Ref.Instrument.Venue, "unmatched_sell")
 	}
-	if note.FillConflict {
+	if result.FillConflict {
 		s.log.Warn().Str("venue", string(ev.Ref.Instrument.Venue)).
 			Str("client_order_id", string(ev.Ref.ClientOrderID)).
 			Str("venue_fill_id", ev.VenueFillID).
 			Msg("cumulative fill advanced under an already-recorded venue fill ID; delta posted without venue fill ID")
 	}
-	if decision.Drop != "" {
+	if result.Drop != "" {
 		s.log.Debug().Str("venue", string(ev.Ref.Instrument.Venue)).
 			Str("client_order_id", string(ev.Ref.ClientOrderID)).
-			Str("reason", string(decision.Drop)).Msg("reconcile event dropped")
+			Str("reason", string(result.Drop)).Msg("reconcile event dropped")
 	}
 	return nil
 }
 
-func storedRef(lo ports.StoredOrder) domain.Ref {
+func storedRef(lo domain.Record) domain.Ref {
 	return domain.Ref{
 		Instrument: lo.Instrument, ClientOrderID: lo.ClientOrderID,
 		VenueOrderID: lo.VenueOrderID,
