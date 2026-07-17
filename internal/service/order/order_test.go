@@ -101,11 +101,10 @@ type fakeStore struct {
 	pending     []domain.Request
 	applied     []appliedEvent
 	cancelMarks []domain.ClientOrderID
-	stored      ports.StoredOrder
+	stored      domain.Record
 	getErr      error
 	applyErr    error
-	decision    domain.Decision
-	ledgerNote  ports.LedgerNote
+	result      domain.ApplyResult
 	appliedCh   chan struct{}
 }
 
@@ -116,7 +115,7 @@ func (f *fakeStore) CreatePending(_ context.Context, req domain.Request) (bool, 
 	if f.stored.ClientOrderID != "" {
 		return false, nil
 	}
-	f.stored = ports.StoredOrder{
+	f.stored = domain.Record{
 		ClientOrderID: req.ClientOrderID,
 		BotID:         req.BotID,
 		Instrument:    req.Instrument,
@@ -129,7 +128,7 @@ func (f *fakeStore) CreatePending(_ context.Context, req domain.Request) (bool, 
 	return true, nil
 }
 
-func (f *fakeStore) ApplyEvent(_ context.Context, source domain.Source, ev domain.Event) (domain.Decision, ports.LedgerNote, error) {
+func (f *fakeStore) ApplyEvent(_ context.Context, source domain.Source, ev domain.Event) (domain.ApplyResult, error) {
 	f.mu.Lock()
 	f.applied = append(f.applied, appliedEvent{source: source, ev: ev})
 	if f.applyErr == nil {
@@ -140,21 +139,13 @@ func (f *fakeStore) ApplyEvent(_ context.Context, source domain.Source, ev domai
 	if f.appliedCh != nil {
 		f.appliedCh <- struct{}{}
 	}
-	return f.decision, f.ledgerNote, f.applyErr
+	return f.result, f.applyErr
 }
 
-func (f *fakeStore) GetOrder(context.Context, domain.ClientOrderID) (ports.StoredOrder, error) {
+func (f *fakeStore) GetOrder(context.Context, domain.ClientOrderID) (domain.Record, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.stored, f.getErr
-}
-
-func (f *fakeStore) ListOrders(context.Context, ports.OrderFilter) ([]ports.StoredOrder, error) {
-	return nil, nil
-}
-
-func (f *fakeStore) ListActiveOrders(context.Context, instrument.VenueID) ([]ports.StoredOrder, error) {
-	return nil, nil
 }
 
 func (f *fakeStore) MarkCancelRequested(_ context.Context, orderID domain.ClientOrderID, _ time.Time) error {
@@ -164,7 +155,7 @@ func (f *fakeStore) MarkCancelRequested(_ context.Context, orderID domain.Client
 	return nil
 }
 
-func newService(t *testing.T, placer ports.OrderPlacer, store ports.OrderStore, streamer ports.PrivateStreamer) (*Service, *clockwork.FakeClock, *Metrics) {
+func newService(t *testing.T, placer ports.OrderPlacer, store *fakeStore, streamer ports.PrivateStreamer) (*Service, *clockwork.FakeClock, *Metrics) {
 	t.Helper()
 	clk := clockwork.NewFakeClockAt(time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC))
 	m, err := NewMetrics(prometheus.NewRegistry())
@@ -172,7 +163,7 @@ func newService(t *testing.T, placer ports.OrderPlacer, store ports.OrderStore, 
 		t.Fatal(err)
 	}
 	venues := []Venue{{ID: "bybit", Placer: placer, Streamer: streamer}}
-	return New(venues, store, clk, log.Nop(), 2*time.Second, m), clk, m
+	return New(venues, store, store, clk, log.Nop(), 2*time.Second, m), clk, m
 }
 
 func placeRequest() domain.Request {
@@ -189,7 +180,7 @@ func TestPlaceHappyPath(t *testing.T) {
 	t.Parallel()
 
 	placer := &fakePlacer{}
-	store := &fakeStore{decision: domain.Decision{Transition: true, To: domain.StatusOpen}}
+	store := &fakeStore{result: domain.ApplyResult{Decision: domain.Decision{Transition: true, To: domain.StatusOpen}}}
 	svc, _, _ := newService(t, placer, store, nil)
 
 	result, err := svc.Place(context.Background(), placeRequest())
@@ -310,7 +301,7 @@ func TestPlaceSuppliedIDContract(t *testing.T) {
 	request := placeRequest()
 	request.ClientOrderID = "01J00000000000000000000001"
 	request.BotID = "manual"
-	stored := ports.StoredOrder{
+	stored := domain.Record{
 		ClientOrderID: request.ClientOrderID, BotID: request.BotID, Instrument: request.Instrument,
 		Side: request.Side, Type: request.Type, Price: request.Price, Qty: request.Qty, Status: domain.StatusOpen, VenueOrderID: "v-1",
 	}
@@ -404,7 +395,7 @@ func TestCancel(t *testing.T) {
 	t.Parallel()
 
 	placer := &fakePlacer{}
-	store := &fakeStore{stored: ports.StoredOrder{
+	store := &fakeStore{stored: domain.Record{
 		ClientOrderID: "cid-1", Instrument: testInstrument(),
 		Status: domain.StatusOpen, VenueOrderID: "v-1",
 	}}
@@ -546,10 +537,11 @@ func TestRunStartsOneConsumerPerVenue(t *testing.T) {
 		t.Fatal(err)
 	}
 	clk := clockwork.NewFakeClockAt(time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC))
+	store := &fakeStore{}
 	svc := New([]Venue{
 		{ID: "bybit", Placer: &fakePlacer{}, Streamer: first},
 		{ID: "kraken", Placer: &fakePlacer{}, Streamer: second},
-	}, &fakeStore{}, clk, log.Nop(), time.Second, metrics)
+	}, store, store, clk, log.Nop(), time.Second, metrics)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- svc.Run(ctx) }()
@@ -571,7 +563,7 @@ func TestRunStartsOneConsumerPerVenue(t *testing.T) {
 func TestApplyCountsDrops(t *testing.T) {
 	t.Parallel()
 
-	store := &fakeStore{decision: domain.Decision{To: domain.StatusOpen, Drop: domain.DropDuplicate}}
+	store := &fakeStore{result: domain.ApplyResult{Decision: domain.Decision{To: domain.StatusOpen, Drop: domain.DropDuplicate}}}
 	svc, _, m := newService(t, &fakePlacer{}, store, nil)
 
 	if err := svc.apply(context.Background(), domain.SourceStream, streamEvent(domain.StatusOpen)); err != nil {
@@ -581,7 +573,7 @@ func TestApplyCountsDrops(t *testing.T) {
 		t.Fatalf("dropped{duplicate} = %v, want 1", got)
 	}
 
-	store.decision = domain.Decision{Transition: true, To: domain.StatusFilled, FillAnomaly: true}
+	store.result.Decision = domain.Decision{Transition: true, To: domain.StatusFilled, FillAnomaly: true}
 	if err := svc.apply(context.Background(), domain.SourceStream, streamEvent(domain.StatusFilled)); err != nil {
 		t.Fatalf("apply fill anomaly: %v", err)
 	}
@@ -589,8 +581,8 @@ func TestApplyCountsDrops(t *testing.T) {
 		t.Fatalf("dropped{negative_fill_delta} = %v, want 1", got)
 	}
 
-	store.decision = domain.Decision{}
-	store.ledgerNote = ports.LedgerNote{UnmatchedQty: decimal.RequireFromString("0.25")}
+	store.result = domain.ApplyResult{}
+	store.result.UnmatchedQty = decimal.RequireFromString("0.25")
 	if err := svc.apply(context.Background(), domain.SourceStream, streamEvent(domain.StatusPartiallyFilled)); err != nil {
 		t.Fatalf("apply unmatched sell: %v", err)
 	}
@@ -615,9 +607,9 @@ func TestApplyCountsDrops(t *testing.T) {
 func TestFillConflictCountedAndLogged(t *testing.T) {
 	t.Parallel()
 
-	store := &fakeStore{ledgerNote: ports.LedgerNote{FillConflict: true}}
+	store := &fakeStore{result: domain.ApplyResult{FillConflict: true}}
 	svc, _, m := newService(t, &fakePlacer{}, store, nil)
-	store.decision = domain.Decision{Transition: true, To: domain.StatusPartiallyFilled, FillDelta: decimal.RequireFromString("0.1")}
+	store.result.Decision = domain.Decision{Transition: true, To: domain.StatusPartiallyFilled, FillDelta: decimal.RequireFromString("0.1")}
 	if err := svc.apply(context.Background(), domain.SourceStream, streamEvent(domain.StatusPartiallyFilled)); err != nil {
 		t.Fatalf("apply: %v", err)
 	}

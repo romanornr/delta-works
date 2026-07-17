@@ -4,7 +4,8 @@ An ADR is a short document that captures one significant design decision: the si
 
 Rules for this directory:
 
-- ADRs are immutable once accepted. To change a decision, write a new ADR that supersedes the old one and mark the old one `superseded-by-NNNN`. History is never rewritten, so the reasoning trail stays honest.
+- Accepted ADR bodies are immutable. To change a decision, write a new ADR; history is never rewritten.
+- If the new ADR replaces the whole decision, mark the old ADR `superseded-by-NNNN`. If it replaces only a bounded scope, retain the old ADR's accepted status and append `partially superseded by NNNN (scope)`; every unlisted part remains accepted.
 - Every significant design choice gets its ADR in the same change that implements it, not afterwards.
 - AI assistants: read these before proposing architectural changes, and write one when you make one.
 
@@ -22,3 +23,4 @@ File naming is `NNNN-title.md`. Each ADR opens with a **Status** line and then e
 | [0006](0006-secret-files.md) | Secret files | venue credentials come from env vars or single-secret files, never `config.yaml`; multiline PEM keys and deployment secret mounts both just work |
 | [0007](0007-connectrpc-control-plane.md) | ConnectRPC control plane | one protobuf contract serves gRPC, gRPC-Web and curl-able JSON on the same endpoint; every client goes through it, nothing bypasses it |
 | [0008](0008-transactional-outbox.md) | Transactional outbox | order events are written to the database in the same transaction as the state change, and a relay delivers them to the bus; kills the dual-write lost-event problem |
+| [0009](0009-model-ownership-consumer-sized-ports.md) | Model ownership and consumer-sized ports | models live with the capability that gives them meaning; each consumer depends only on the adapter behavior it uses |

@@ -15,7 +15,6 @@ import (
 	"github.com/romanornr/delta-works/internal/domain/money"
 	"github.com/romanornr/delta-works/internal/domain/order"
 	"github.com/romanornr/delta-works/internal/id"
-	"github.com/romanornr/delta-works/internal/ports"
 )
 
 const subjectUnmatchedSell = "ledger.unmatched_sell"
@@ -53,15 +52,15 @@ func (s *OrderStore) postLedgerFill(
 	ev order.Event,
 	fillQty decimal.Decimal,
 	fillID int64,
-) (ports.LedgerNote, error) {
+) (ledger.Outcome, error) {
 	if !fillQty.IsPositive() {
-		return ports.LedgerNote{}, fmt.Errorf("postgres: post ledger fill: quantity %s must be positive", fillQty)
+		return ledger.Outcome{}, fmt.Errorf("postgres: post ledger fill: quantity %s must be positive", fillQty)
 	}
 	if ev.FillPrice.IsNegative() {
-		return ports.LedgerNote{}, fmt.Errorf("postgres: post ledger fill: price %s must not be negative", ev.FillPrice)
+		return ledger.Outcome{}, fmt.Errorf("postgres: post ledger fill: price %s must not be negative", ev.FillPrice)
 	}
 	if err := q.LockInventory(ctx, inventoryLockKey(row.BotID, row.Venue, row.Base, row.Quote)); err != nil {
-		return ports.LedgerNote{}, fmt.Errorf("postgres: lock inventory: %w", err)
+		return ledger.Outcome{}, fmt.Errorf("postgres: lock inventory: %w", err)
 	}
 
 	switch order.Side(row.Side) {
@@ -70,7 +69,7 @@ func (s *OrderStore) postLedgerFill(
 	case order.Sell:
 		return s.closeLots(ctx, q, row, ev, fillQty, fillID)
 	default:
-		return ports.LedgerNote{}, fmt.Errorf("postgres: post ledger fill: unsupported side %q", row.Side)
+		return ledger.Outcome{}, fmt.Errorf("postgres: post ledger fill: unsupported side %q", row.Side)
 	}
 }
 
@@ -81,15 +80,15 @@ func (*OrderStore) openLot(
 	ev order.Event,
 	fillQty decimal.Decimal,
 	fillID int64,
-) (ports.LedgerNote, error) {
+) (ledger.Outcome, error) {
 	lotID := id.New()
 	if err := q.InsertLot(ctx, sqlcgen.InsertLotParams{
 		ID: lotID, BotID: row.BotID, Venue: row.Venue, Base: row.Base, Quote: row.Quote,
 		Qty: fillQty, CostPrice: ev.FillPrice, OpenedByFillID: fillID, OpenedAt: ev.At.UTC(),
 	}); err != nil {
-		return ports.LedgerNote{}, fmt.Errorf("postgres: insert lot: %w", err)
+		return ledger.Outcome{}, fmt.Errorf("postgres: insert lot: %w", err)
 	}
-	return ports.LedgerNote{OpenedLotID: lotID}, nil
+	return ledger.Outcome{}, nil
 }
 
 func (s *OrderStore) closeLots(
@@ -99,12 +98,12 @@ func (s *OrderStore) closeLots(
 	ev order.Event,
 	fillQty decimal.Decimal,
 	fillID int64,
-) (ports.LedgerNote, error) {
+) (ledger.Outcome, error) {
 	rows, err := q.ListOpenLotsForUpdate(ctx, sqlcgen.ListOpenLotsForUpdateParams{
 		BotID: row.BotID, Venue: row.Venue, Base: row.Base, Quote: row.Quote,
 	})
 	if err != nil {
-		return ports.LedgerNote{}, fmt.Errorf("postgres: list open lots: %w", err)
+		return ledger.Outcome{}, fmt.Errorf("postgres: list open lots: %w", err)
 	}
 	open := make([]ledger.Lot, 0, len(rows))
 	for _, lot := range rows {
@@ -117,16 +116,16 @@ func (s *OrderStore) closeLots(
 	allocation := s.selector.Select(open, fillQty)
 	for _, closure := range allocation.Closures {
 		if err := recordClosure(ctx, q, closure, ev.FillPrice, ev.At.UTC(), fillID); err != nil {
-			return ports.LedgerNote{}, err
+			return ledger.Outcome{}, err
 		}
 	}
 	if !allocation.Unmatched.IsPositive() {
-		return ports.LedgerNote{}, nil
+		return ledger.Outcome{}, nil
 	}
 	if err := recordUnmatched(ctx, q, row, ev, allocation.Unmatched, fillID); err != nil {
-		return ports.LedgerNote{}, err
+		return ledger.Outcome{}, err
 	}
-	return ports.LedgerNote{UnmatchedQty: allocation.Unmatched}, nil
+	return ledger.Outcome{UnmatchedQty: allocation.Unmatched}, nil
 }
 
 func recordClosure(

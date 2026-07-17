@@ -1,7 +1,7 @@
 // Package order orchestrates order placement, cancellation and venue event
 // application per the order state machine (docs/specs/manual-trading.md). The pending
 // row is persisted before the venue submit; venue events reach Postgres
-// through OrderStore.ApplyEvent, which also feeds the outbox (ADR-0008).
+// through OrderEventStore.ApplyEvent, which also feeds the outbox (ADR-0008).
 package order
 
 import (
@@ -62,7 +62,8 @@ type Venue struct {
 // (ADR-0007: the control plane is the sole client surface).
 type Service struct {
 	venues       map[instrument.VenueID]Venue
-	store        ports.OrderStore
+	commands     ports.OrderCommandStore
+	events       ports.OrderEventStore
 	clk          clockwork.Clock
 	log          log.Logger
 	submitBudget time.Duration
@@ -71,14 +72,15 @@ type Service struct {
 
 // New builds the service. Metrics must not be nil. submitBudget caps the
 // total time spent retrying one venue submit with the same ULID.
-func New(venues []Venue, store ports.OrderStore, clk clockwork.Clock, logger log.Logger, submitBudget time.Duration, metrics *Metrics) *Service {
+func New(venues []Venue, commands ports.OrderCommandStore, events ports.OrderEventStore, clk clockwork.Clock, logger log.Logger, submitBudget time.Duration, metrics *Metrics) *Service {
 	byID := make(map[instrument.VenueID]Venue, len(venues))
 	for _, v := range venues {
 		byID[v.ID] = v
 	}
 	return &Service{
 		venues:       byID,
-		store:        store,
+		commands:     commands,
+		events:       events,
 		clk:          clk,
 		log:          log.Component(logger, "order"),
 		submitBudget: submitBudget,
@@ -120,7 +122,7 @@ func (s *Service) Place(ctx context.Context, req domain.Request) (PlaceResult, e
 	}); err != nil {
 		return s.acceptedUnsettled(req, err)
 	}
-	stored, err := s.store.GetOrder(ctx, req.ClientOrderID)
+	stored, err := s.commands.GetOrder(ctx, req.ClientOrderID)
 	if err != nil {
 		return s.acceptedUnsettled(req, err)
 	}
@@ -151,7 +153,7 @@ func (s *Service) preparePlace(ctx context.Context, req domain.Request) (domain.
 	// supplied-ID retries idempotent even after a venue is deconfigured.
 	venue, configured := s.venues[req.Instrument.Venue]
 	if configured {
-		inserted, err := s.store.CreatePending(ctx, req)
+		inserted, err := s.commands.CreatePending(ctx, req)
 		if err != nil {
 			return req, Venue{}, nil, err
 		}
@@ -159,7 +161,7 @@ func (s *Service) preparePlace(ctx context.Context, req domain.Request) (domain.
 			return req, venue, nil, nil
 		}
 	}
-	stored, err := s.store.GetOrder(ctx, req.ClientOrderID)
+	stored, err := s.commands.GetOrder(ctx, req.ClientOrderID)
 	if err != nil {
 		if !configured && errors.Is(err, ports.ErrNotFound) {
 			return req, Venue{}, nil, fmt.Errorf("%w: %q", ErrVenueNotConfigured, req.Instrument.Venue)
@@ -205,7 +207,7 @@ func (s *Service) submitFailure(ctx context.Context, req domain.Request, err err
 	s.log.Error().Str("venue", string(req.Instrument.Venue)).
 		Str("client_order_id", string(req.ClientOrderID)).Err(err).
 		Msg("submit unsettled after retries")
-	stored, getErr := s.store.GetOrder(ctx, req.ClientOrderID)
+	stored, getErr := s.commands.GetOrder(ctx, req.ClientOrderID)
 	if getErr != nil {
 		return PlaceResult{ClientOrderID: req.ClientOrderID, Status: domain.StatusPending},
 			fmt.Errorf("%w: %w", ErrSubmitUnsettled, err)
@@ -213,7 +215,7 @@ func (s *Service) submitFailure(ctx context.Context, req domain.Request, err err
 	return placeResult(stored), fmt.Errorf("%w: %w", ErrSubmitUnsettled, err)
 }
 
-func sameIdentity(stored ports.StoredOrder, req domain.Request) bool {
+func sameIdentity(stored domain.Record, req domain.Request) bool {
 	return stored.ClientOrderID == req.ClientOrderID &&
 		stored.BotID == req.BotID &&
 		stored.Instrument.Venue == req.Instrument.Venue &&
@@ -223,14 +225,14 @@ func sameIdentity(stored ports.StoredOrder, req domain.Request) bool {
 		stored.Price.Equal(req.Price) && stored.Qty.Equal(req.Qty)
 }
 
-func placeResult(stored ports.StoredOrder) PlaceResult {
+func placeResult(stored domain.Record) PlaceResult {
 	return PlaceResult{ClientOrderID: stored.ClientOrderID, Status: stored.Status}
 }
 
 // Cancel records the cancel intent and asks the venue. The canceled state
 // itself arrives later like any other venue event.
 func (s *Service) Cancel(ctx context.Context, orderID domain.ClientOrderID) (domain.Status, error) {
-	stored, err := s.store.GetOrder(ctx, orderID)
+	stored, err := s.commands.GetOrder(ctx, orderID)
 	if err != nil {
 		return "", err
 	}
@@ -241,7 +243,7 @@ func (s *Service) Cancel(ctx context.Context, orderID domain.ClientOrderID) (dom
 	if !ok {
 		return "", fmt.Errorf("%w: %q", ErrVenueNotConfigured, stored.Instrument.Venue)
 	}
-	if err := s.store.MarkCancelRequested(ctx, orderID, s.clk.Now()); err != nil {
+	if err := s.commands.MarkCancelRequested(ctx, orderID, s.clk.Now()); err != nil {
 		return "", err
 	}
 	if err := venue.Placer.CancelOrder(ctx, domain.Ref{
@@ -309,7 +311,7 @@ func (s *Service) apply(ctx context.Context, source domain.Source, ev domain.Eve
 		ev.At = s.clk.Now()
 	}
 	venue := ev.Ref.Instrument.Venue
-	decision, note, err := s.store.ApplyEvent(ctx, source, ev)
+	result, err := s.events.ApplyEvent(ctx, source, ev)
 	switch {
 	case errors.Is(err, ports.ErrNotFound):
 		s.metrics.observeDropped(venue, "unknown_order")
@@ -324,20 +326,20 @@ func (s *Service) apply(ctx context.Context, source domain.Source, ev domain.Eve
 		}
 		return fmt.Errorf("order store: %w", err)
 	}
-	if note.UnmatchedQty.IsPositive() {
+	if result.UnmatchedQty.IsPositive() {
 		s.metrics.observeUnmatched(venue)
 	}
-	if note.FillConflict {
+	if result.FillConflict {
 		s.metrics.observeDropped(venue, "fill_id_conflict")
 		s.log.Warn().Str("venue", string(venue)).
 			Str("client_order_id", string(ev.Ref.ClientOrderID)).
 			Str("venue_fill_id", ev.VenueFillID).
 			Msg("cumulative fill advanced under an already-recorded venue fill ID; delta posted without venue fill ID")
 	}
-	if decision.Drop != "" && !decision.Transition && !decision.FillDelta.IsPositive() {
-		s.metrics.observeDropped(venue, string(decision.Drop))
+	if result.Drop != "" && !result.Transition && !result.FillDelta.IsPositive() {
+		s.metrics.observeDropped(venue, string(result.Drop))
 	}
-	if decision.FillAnomaly {
+	if result.FillAnomaly {
 		s.metrics.observeDropped(venue, "negative_fill_delta")
 	}
 	return nil

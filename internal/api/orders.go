@@ -33,12 +33,12 @@ var errInvalidArgument = errors.New("invalid argument")
 // OrderServer serves control.v1.OrderService.
 type OrderServer struct {
 	service *orderservice.Service
-	store   ports.OrderStore
+	orders  ports.OrderQueryStore
 }
 
 // NewOrderServer builds the OrderService handler.
-func NewOrderServer(service *orderservice.Service, store ports.OrderStore) *OrderServer {
-	return &OrderServer{service: service, store: store}
+func NewOrderServer(service *orderservice.Service, orders ports.OrderQueryStore) *OrderServer {
+	return &OrderServer{service: service, orders: orders}
 }
 
 // PlaceOrder submits an idempotent order request.
@@ -96,7 +96,7 @@ func (s *OrderServer) ListOrders(ctx context.Context, req *connect.Request[contr
 		}
 		filter.CursorCreatedAt, filter.CursorID = &cursor.CreatedAt, &cursor.ClientOrderID
 	}
-	rows, err := s.store.ListOrders(ctx, filter)
+	rows, err := s.orders.ListOrders(ctx, filter)
 	if err != nil {
 		return nil, mapOrderError(err)
 	}
@@ -150,7 +150,7 @@ func decodePageToken(encoded, digest string) (pageToken, error) {
 	return token, nil
 }
 
-func orderFilter(req *controlv1.ListOrdersRequest, limit int32) (ports.OrderFilter, string) {
+func orderFilter(req *controlv1.ListOrdersRequest, limit int32) (domain.Query, string) {
 	statuses := make([]string, 0, len(req.GetStatuses()))
 	for _, status := range req.GetStatuses() {
 		statuses = append(statuses, string(fromProtoOrderStatus(status)))
@@ -158,7 +158,7 @@ func orderFilter(req *controlv1.ListOrdersRequest, limit int32) (ports.OrderFilt
 	slices.Sort(statuses)
 	statuses = slices.Compact(statuses)
 	venue, bot := strings.TrimSpace(req.GetVenue()), strings.TrimSpace(req.GetBotId())
-	filter := ports.OrderFilter{Statuses: statuses, Limit: limit}
+	filter := domain.Query{Statuses: statuses, Limit: limit}
 	if venue != "" {
 		filter.Venue = &venue
 	}
@@ -203,7 +203,7 @@ func mapOrderError(err error) error {
 	return connect.NewError(code, public)
 }
 
-func toProtoOrder(row ports.StoredOrder) *controlv1.Order {
+func toProtoOrder(row domain.Record) *controlv1.Order {
 	return &controlv1.Order{
 		ClientOrderId: string(row.ClientOrderID), VenueOrderId: row.VenueOrderID,
 		Venue: string(row.Instrument.Venue), Base: string(row.Instrument.Base), Quote: string(row.Instrument.Quote),

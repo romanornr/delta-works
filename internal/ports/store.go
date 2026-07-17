@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/shopspring/decimal"
 
 	"github.com/romanornr/delta-works/internal/domain/account"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
@@ -55,69 +54,40 @@ type CheckpointStore interface {
 	LastSnapshot(ctx context.Context, ref account.Ref) (SnapshotCheckpoint, error)
 }
 
-// StoredOrder is the persisted state of an order. Zero-valued
-// AvgFillPrice, VenueOrderID and CancelRequestedAt mean not yet known.
-type StoredOrder struct {
-	ClientOrderID     order.ClientOrderID
-	BotID             string
-	Instrument        instrument.Instrument
-	Side              order.Side
-	Type              order.Type
-	Price             decimal.Decimal
-	Qty               decimal.Decimal
-	FilledQty         decimal.Decimal
-	AvgFillPrice      decimal.Decimal
-	Status            order.Status
-	VenueOrderID      string
-	CancelRequestedAt time.Time
-	Reason            string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-}
-
-// LedgerNote reports what a fill posted, for observability only; ledger
-// truth lives in Postgres.
-type LedgerNote struct {
-	OpenedLotID  string          // non-empty when a buy fill opened a lot
-	UnmatchedQty decimal.Decimal // positive when a sell fill oversold
-	// FillConflict reports contradictory venue data: the event advanced the
-	// cumulative fill under a venue fill ID that is already recorded. The
-	// delta and ledger posting remain authoritative without that secondary ID.
-	FillConflict bool
-}
-
-// OrderFilter selects one keyset-paginated order page.
-type OrderFilter struct {
-	Venue           *string
-	Statuses        []string
-	BotID           *string
-	Limit           int32
-	CursorCreatedAt *time.Time
-	CursorID        *string
-}
-
-// OrderStore persists order state per the order state machine
-// (docs/specs/manual-trading.md). Every write goes through a transaction that
-// also inserts the matching outbox rows (ADR-0008).
-type OrderStore interface {
+// OrderCommandStore persists order commands before venue calls.
+type OrderCommandStore interface {
 	// CreatePending inserts the order in status pending before the venue
-	// submit. Idempotent: re-inserting the same ClientOrderID is a no-op.
+	// submit. Idempotent: re-inserting the same ClientOrderID reports false.
 	CreatePending(ctx context.Context, req order.Request) (bool, error)
-	// ApplyEvent applies a venue event: transition row, fill row and
-	// outbox rows in one transaction. Idempotent and order-independent.
-	// Returns ErrNotFound when the order is unknown.
-	ApplyEvent(ctx context.Context, source order.Source, ev order.Event) (order.Decision, LedgerNote, error)
 	// GetOrder returns the stored order, or ErrNotFound.
-	GetOrder(ctx context.Context, id order.ClientOrderID) (StoredOrder, error)
-	// ListActiveOrders returns every non-terminal order (pending, open,
-	// partially_filled) for one venue.
-	ListActiveOrders(ctx context.Context, venue instrument.VenueID) ([]StoredOrder, error)
-	// ListOrders returns at most filter.Limit+1 rows so the caller can
-	// derive a next-page token.
-	ListOrders(ctx context.Context, filter OrderFilter) ([]StoredOrder, error)
+	GetOrder(ctx context.Context, id order.ClientOrderID) (order.Record, error)
 	// MarkCancelRequested stamps the cancel intent once; later calls keep
 	// the first timestamp. Returns ErrNotFound for unknown orders.
 	MarkCancelRequested(ctx context.Context, id order.ClientOrderID, at time.Time) error
+}
+
+// OrderEventStore applies venue events to durable order state.
+type OrderEventStore interface {
+	// ApplyEvent applies one venue event: transition row, fill row, ledger
+	// posting and outbox rows in a single transaction. Idempotent and
+	// order-independent. Returns ErrNotFound when the order is unknown.
+	ApplyEvent(ctx context.Context, source order.Source, ev order.Event) (order.ApplyResult, error)
+}
+
+// OrderReconcileStore reads the local order state needed for convergence.
+type OrderReconcileStore interface {
+	// GetOrder returns the stored order, or ErrNotFound.
+	GetOrder(ctx context.Context, id order.ClientOrderID) (order.Record, error)
+	// ListActiveOrders returns every non-terminal order (pending, open,
+	// partially_filled) for one venue.
+	ListActiveOrders(ctx context.Context, venue instrument.VenueID) ([]order.Record, error)
+}
+
+// OrderQueryStore serves keyset-paginated order reads.
+type OrderQueryStore interface {
+	// ListOrders returns at most query.Limit+1 rows so the caller can
+	// derive a next-page token.
+	ListOrders(ctx context.Context, query order.Query) ([]order.Record, error)
 }
 
 // OutboxMessage is one unpublished outbox row.

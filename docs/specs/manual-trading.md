@@ -29,17 +29,17 @@ Additions to the account-watch tree:
 
 ```
 internal/id/                # ULID generation (oklog/ulid/v2, crypto/rand entropy)
-internal/domain/order/      # state machine: Transition(current, event) (decision, error)  [pure]
-internal/domain/ledger/     # Lot, Closure, LotSelector interface, FIFO selector           [pure]
+internal/domain/order/      # state machine, persisted record/query models, apply result   [pure]
+internal/domain/ledger/     # lot model, FIFO selection, ledger application outcome        [pure]
 internal/service/order/     # place/cancel/apply-event orchestration
 internal/service/reconcile/ # periodic venue-vs-local diff loop
 internal/service/outbox/    # outbox relay: poll, then bus.Publish
 internal/adapters/gct/      # gains OrderPlacer + PrivateStreamer implementations
-internal/adapters/postgres/ # gains OrderStore, OutboxStore, ledger posting
+internal/adapters/postgres/ # order command/event/reconcile/query ports, outbox, ledger posting
 proto/control/v1/           # gains orders.proto (OrderService) + new Event oneof arms
 ```
 
-Domain packages stay pure (ADR-0002): `internal/id` owns the ULID dependency; domain code treats IDs as opaque strings.
+Models live with the domain capability that gives them meaning, while each application consumer receives only the persistence port it uses (ADR-0009). The Postgres adapter implements the separate command, event, reconciliation-read, and API-query ports. Domain packages stay pure (ADR-0002): `internal/id` owns the ULID dependency; domain code treats IDs as opaque strings.
 
 ## The order state machine
 
@@ -142,6 +142,8 @@ Apply is idempotent and runs in one Postgres transaction with `SELECT ... FOR UP
 | 5 | `outbox` | insert `order.updated` / `order.filled` event rows (ADR-0008) |
 
 One commit makes all five visible together; a crash anywhere rolls back all five. There is no state in which a fill exists without its transition, its ledger posting, or its outbox event.
+
+`order.ApplyResult` carries the state-machine decision together with the ledger-owned application outcome and any fill-ID conflict. It reports effects of that same transaction for metrics and logging without exposing database-generated lot IDs; durable truth remains in Postgres.
 
 Cancel is an intent, not a state: `CancelOrder` stamps `cancel_requested_at` on the order and asks the venue; the actual `canceled` transition arrives later through the stream or reconciliation like any other venue event. Recording "canceled" at request time would be recording something the venue has not confirmed, and venues do refuse cancels (the order may have filled first).
 
