@@ -32,6 +32,9 @@ func New(cfg config.Log) (Logger, error) {
 	return zerolog.New(out).Level(level).With().Timestamp().Logger(), nil
 }
 
+// Nop returns a disabled logger.
+func Nop() Logger { return zerolog.Nop() }
+
 // Component returns a child logger tagged with a component name.
 func Component(l Logger, name string) Logger {
 	return l.With().Str("component", name).Logger()

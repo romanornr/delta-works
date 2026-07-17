@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/fx"
 
@@ -20,7 +21,6 @@ import (
 	"github.com/romanornr/delta-works/internal/adapters/questdb"
 	"github.com/romanornr/delta-works/internal/api"
 	"github.com/romanornr/delta-works/internal/bus"
-	"github.com/romanornr/delta-works/internal/clock"
 	"github.com/romanornr/delta-works/internal/config"
 	"github.com/romanornr/delta-works/internal/domain/account"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
@@ -47,7 +47,7 @@ func New(configPath string, configExplicit bool) *fx.App {
 		fx.Provide(
 			func() (config.Config, error) { return config.Load(configPath, configExplicit) },
 			func(cfg config.Config) (log.Logger, error) { return log.New(cfg.Log) },
-			clock.New,
+			clockwork.NewRealClock,
 			telemetry.NewRegistry,
 			newBus,
 			func(b *bus.InProc) bus.Bus { return b },
@@ -97,7 +97,7 @@ type exchangeProducts struct {
 
 // newExchangeProducts connects every enabled venue through the GCT adapter
 // and wraps it in the standard resilience stack (rate limit + breaker).
-func newExchangeProducts(cfg config.Config, l log.Logger, eventBus bus.Bus, clk clock.Clock) (exchangeProducts, error) {
+func newExchangeProducts(cfg config.Config, l log.Logger, eventBus bus.Bus, clk clockwork.Clock) (exchangeProducts, error) {
 	logger := log.Component(l, "exchange")
 	ctx, cancel := context.WithTimeout(context.Background(), startupTimeout)
 	defer cancel()
@@ -131,7 +131,7 @@ func newExchangeProducts(cfg config.Config, l log.Logger, eventBus bus.Bus, clk 
 	return exchangeProducts{Registry: exchange.NewRegistry(exchanges), Trading: trading}, nil
 }
 
-func newOrderService(cfg config.Config, venues []tradingVenue, store ports.OrderStore, clk clock.Clock, l log.Logger, m *orderservice.Metrics) *orderservice.Service {
+func newOrderService(cfg config.Config, venues []tradingVenue, store ports.OrderStore, clk clockwork.Clock, l log.Logger, m *orderservice.Metrics) *orderservice.Service {
 	converted := make([]orderservice.Venue, 0, len(venues))
 	for _, venue := range venues {
 		converted = append(converted, orderservice.Venue(venue))
@@ -139,7 +139,7 @@ func newOrderService(cfg config.Config, venues []tradingVenue, store ports.Order
 	return orderservice.New(converted, store, clk, l, cfg.Order.SubmitBudget, m)
 }
 
-func newReconcileService(cfg config.Config, venues []tradingVenue, store ports.OrderStore, eventBus bus.Bus, clk clock.Clock, l log.Logger, m *reconcile.Metrics) *reconcile.Service {
+func newReconcileService(cfg config.Config, venues []tradingVenue, store ports.OrderStore, eventBus bus.Bus, clk clockwork.Clock, l log.Logger, m *reconcile.Metrics) *reconcile.Service {
 	converted := make([]reconcile.Venue, 0, len(venues))
 	for _, venue := range venues {
 		converted = append(converted, reconcile.Venue{ID: venue.ID, Placer: venue.Placer})
@@ -182,7 +182,7 @@ func newSnapshotService(
 	series ports.SeriesWriter,
 	checkpoints ports.CheckpointStore,
 	eventBus bus.Bus,
-	clk clock.Clock,
+	clk clockwork.Clock,
 	l log.Logger,
 	m *snapshot.Metrics,
 ) *snapshot.Service {
@@ -198,7 +198,7 @@ func newSnapshotService(
 	return snapshot.New(registry, series, checkpoints, eventBus, clk, l, cfg.Snapshot.Interval, targets, m)
 }
 
-func newOutboxService(cfg config.Config, store ports.OutboxStore, eventBus bus.Bus, clk clock.Clock, l log.Logger, m *outbox.Metrics) *outbox.Service {
+func newOutboxService(cfg config.Config, store ports.OutboxStore, eventBus bus.Bus, clk clockwork.Clock, l log.Logger, m *outbox.Metrics) *outbox.Service {
 	return outbox.New(store, eventBus, clk, l, cfg.Outbox.Interval, cfg.Outbox.Batch, m)
 }
 

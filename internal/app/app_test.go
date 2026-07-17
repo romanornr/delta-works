@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"go.uber.org/fx"
 
 	"github.com/romanornr/delta-works/internal/bus"
-	"github.com/romanornr/delta-works/internal/clock/clocktest"
 	"github.com/romanornr/delta-works/internal/config"
 	"github.com/romanornr/delta-works/internal/log"
 )
@@ -17,26 +17,22 @@ type hookRecorder struct{ hooks []fx.Hook }
 
 func (r *hookRecorder) Append(hook fx.Hook) { r.hooks = append(r.hooks, hook) }
 
-func appTestLogger(t *testing.T) log.Logger {
-	t.Helper()
-	logger, err := log.New(config.Log{Level: "error", Format: "json"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return logger
-}
-
 func TestTradingDisabledBuildsNoTradingHooks(t *testing.T) {
 	t.Parallel()
 	eventBus := bus.NewInProc()
 	t.Cleanup(eventBus.Close)
-	products, err := newExchangeProducts(config.Config{}, appTestLogger(t), eventBus, clocktest.New(time.Now()))
+	products, err := newExchangeProducts(
+		config.Config{},
+		log.Nop(),
+		eventBus,
+		clockwork.NewFakeClockAt(time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)),
+	)
 	if err != nil || len(products.Trading) != 0 {
 		t.Fatalf("products=%+v err=%v", products, err)
 	}
 	lifecycle := &hookRecorder{}
-	startReconcileService(lifecycle, nil, nil, appTestLogger(t), nil)
-	startOrderService(lifecycle, nil, nil, nil, appTestLogger(t), nil)
+	startReconcileService(lifecycle, nil, nil, log.Nop(), nil)
+	startOrderService(lifecycle, nil, nil, nil, log.Nop(), nil)
 	if len(lifecycle.hooks) != 0 {
 		t.Fatalf("registered %d trading hooks while disabled", len(lifecycle.hooks))
 	}
@@ -51,7 +47,7 @@ func TestOrderStartWaitsForReconcileReady(t *testing.T) {
 		close(started)
 		<-ctx.Done()
 		return nil
-	}, appTestLogger(t), nil)
+	}, log.Nop(), nil)
 	onStartDone := make(chan error, 1)
 	go func() { onStartDone <- lifecycle.hooks[0].OnStart(t.Context()) }()
 	select {

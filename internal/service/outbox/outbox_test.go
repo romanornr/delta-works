@@ -9,26 +9,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/romanornr/delta-works/internal/bus"
-	"github.com/romanornr/delta-works/internal/clock/clocktest"
-	"github.com/romanornr/delta-works/internal/config"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
 )
 
 const testInterval = 500 * time.Millisecond
-
-func testLogger(t *testing.T) log.Logger {
-	t.Helper()
-	logger, err := log.New(config.Log{Level: "error", Format: "json"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return logger
-}
 
 // fakeStore serves rows from a slice and records every call on a channel
 // so tests can synchronize with the relay goroutine.
@@ -117,7 +107,7 @@ func msg(id int64) ports.OutboxMessage {
 }
 
 type fixture struct {
-	clk    *clocktest.Clock
+	clk    *clockwork.FakeClock
 	m      *Metrics
 	events chan bus.Event
 	done   chan error
@@ -135,12 +125,12 @@ func startService(t *testing.T, store ports.OutboxStore, batch int) *fixture {
 		t.Fatalf("Subscribe: %v", err)
 	}
 
-	clk := clocktest.New(time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC))
+	clk := clockwork.NewFakeClockAt(time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC))
 	m, err := NewMetrics(prometheus.NewRegistry())
 	if err != nil {
 		t.Fatalf("NewMetrics: %v", err)
 	}
-	svc := New(store, b, clk, testLogger(t), testInterval, batch, m)
+	svc := New(store, b, clk, log.Nop(), testInterval, batch, m)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)

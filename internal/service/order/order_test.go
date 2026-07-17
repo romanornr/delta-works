@@ -7,27 +7,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/shopspring/decimal"
 
-	"github.com/romanornr/delta-works/internal/clock/clocktest"
-	"github.com/romanornr/delta-works/internal/config"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	domain "github.com/romanornr/delta-works/internal/domain/order"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
 	"github.com/romanornr/delta-works/internal/ports/portstest"
 )
-
-func testLogger(t *testing.T) log.Logger {
-	t.Helper()
-	logger, err := log.New(config.Log{Level: "error", Format: "json"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return logger
-}
 
 func testInstrument() instrument.Instrument {
 	return instrument.Instrument{
@@ -174,15 +164,15 @@ func (f *fakeStore) MarkCancelRequested(_ context.Context, orderID domain.Client
 	return nil
 }
 
-func newService(t *testing.T, placer ports.OrderPlacer, store ports.OrderStore, streamer ports.PrivateStreamer) (*Service, *clocktest.Clock, *Metrics) {
+func newService(t *testing.T, placer ports.OrderPlacer, store ports.OrderStore, streamer ports.PrivateStreamer) (*Service, *clockwork.FakeClock, *Metrics) {
 	t.Helper()
-	clk := clocktest.New(time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC))
+	clk := clockwork.NewFakeClockAt(time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC))
 	m, err := NewMetrics(prometheus.NewRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
 	venues := []Venue{{ID: "bybit", Placer: placer, Streamer: streamer}}
-	return New(venues, store, clk, testLogger(t), 2*time.Second, m), clk, m
+	return New(venues, store, clk, log.Nop(), 2*time.Second, m), clk, m
 }
 
 func placeRequest() domain.Request {
@@ -504,22 +494,18 @@ func TestRunAppliesStreamEventsAndRetriesStream(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- svc.Run(ctx) }()
 
-	// The first StreamOrderEvents call fails and the retry waits on the
-	// fake clock. Advancing in a loop covers the race between this test
-	// and the service registering its After waiter.
+	waitCtx, waitCancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer waitCancel()
+	if err := clk.BlockUntilContext(waitCtx, 1); err != nil {
+		t.Fatalf("wait for stream retry: %v", err)
+	}
+
 	streamer.events <- streamEvent(domain.StatusOpen)
-	deadline := time.After(5 * time.Second)
-	applied := false
-	for !applied {
-		select {
-		case <-store.appliedCh:
-			applied = true
-		case <-deadline:
-			t.Fatal("stream event was not applied")
-		default:
-			clk.Advance(streamRetryDelay)
-			time.Sleep(time.Millisecond)
-		}
+	clk.Advance(streamRetryDelay)
+	select {
+	case <-store.appliedCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stream event was not applied")
 	}
 	store.mu.Lock()
 	if store.applied[0].source != domain.SourceStream || store.applied[0].ev.Status != domain.StatusOpen {
@@ -559,11 +545,11 @@ func TestRunStartsOneConsumerPerVenue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clk := clocktest.New(time.Now())
+	clk := clockwork.NewFakeClockAt(time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC))
 	svc := New([]Venue{
 		{ID: "bybit", Placer: &fakePlacer{}, Streamer: first},
 		{ID: "kraken", Placer: &fakePlacer{}, Streamer: second},
-	}, &fakeStore{}, clk, testLogger(t), time.Second, metrics)
+	}, &fakeStore{}, clk, log.Nop(), time.Second, metrics)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- svc.Run(ctx) }()

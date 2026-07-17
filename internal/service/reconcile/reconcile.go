@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romanornr/delta-works/internal/bus"
-	"github.com/romanornr/delta-works/internal/clock"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	domain "github.com/romanornr/delta-works/internal/domain/order"
 	"github.com/romanornr/delta-works/internal/log"
@@ -49,7 +49,7 @@ type Service struct {
 	venues    []*venueLoop
 	store     ports.OrderStore
 	bus       bus.Bus
-	clk       clock.Clock
+	clk       clockwork.Clock
 	log       log.Logger
 	interval  time.Duration
 	metrics   *Metrics
@@ -62,7 +62,7 @@ func New(
 	venues []Venue,
 	store ports.OrderStore,
 	b bus.Bus,
-	clk clock.Clock,
+	clk clockwork.Clock,
 	logger log.Logger,
 	interval time.Duration,
 	metrics *Metrics,

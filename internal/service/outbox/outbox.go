@@ -10,8 +10,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jonboulle/clockwork"
+
 	"github.com/romanornr/delta-works/internal/bus"
-	"github.com/romanornr/delta-works/internal/clock"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
 )
@@ -28,7 +29,7 @@ const cleanupInterval = time.Hour
 type Service struct {
 	store    ports.OutboxStore
 	bus      bus.Bus
-	clk      clock.Clock
+	clk      clockwork.Clock
 	log      log.Logger
 	interval time.Duration
 	batch    int
@@ -39,7 +40,7 @@ type Service struct {
 func New(
 	store ports.OutboxStore,
 	eventBus bus.Bus,
-	clk clock.Clock,
+	clk clockwork.Clock,
 	logger log.Logger,
 	interval time.Duration,
 	batch int,
@@ -74,11 +75,11 @@ func (s *Service) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C():
+		case <-ticker.Chan():
 			if err := s.drain(ctx); err != nil {
 				return err
 			}
-		case <-cleanup.C():
+		case <-cleanup.Chan():
 			if err := s.cleanup(ctx); err != nil {
 				return err
 			}
