@@ -12,7 +12,7 @@ COMPOSE := docker compose -f deploy/docker-compose.yml
 # nonstandard local Postgres.
 -include local.mk
 
-.PHONY: all build run run-docker fmt fmt-check lint proto-lint identity-check test test-race test-integration cover vuln tidy-check generate \
+.PHONY: all build run run-docker fmt fmt-check lint proto-lint identity-check test test-race test-integration verify-tags cover vuln tidy-check generate \
         migrate-up migrate-down migrate-status compose-up compose-down ci
 
 all: build
@@ -48,6 +48,11 @@ test-race:
 
 test-integration:
 	$(GO) test -race -tags integration ./...
+
+verify-tags:
+	$(GO) vet -tags integration ./...
+	$(GO) test -run '^$$' -tags live ./...
+	$(GO) vet -tags live ./...
 
 cover:
 	$(GO) test -race -coverprofile=coverage.out ./...

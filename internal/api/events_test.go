@@ -18,7 +18,6 @@ import (
 	controlv1 "github.com/romanornr/delta-works/internal/api/gen/control/v1"
 	"github.com/romanornr/delta-works/internal/api/gen/control/v1/controlv1connect"
 	"github.com/romanornr/delta-works/internal/bus"
-	"github.com/romanornr/delta-works/internal/config"
 	"github.com/romanornr/delta-works/internal/domain/account"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	"github.com/romanornr/delta-works/internal/domain/money"
@@ -31,15 +30,11 @@ import (
 
 func testEventServer(t *testing.T, eventBus bus.Bus) *EventServer {
 	t.Helper()
-	logger, err := log.New(config.Log{Level: "error", Format: "json"})
-	if err != nil {
-		t.Fatal(err)
-	}
 	metrics, err := NewMetrics(prometheus.NewRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewEventServer(eventBus, logger, metrics)
+	return NewEventServer(eventBus, log.Nop(), metrics)
 }
 
 func testSnapshot() account.Snapshot {

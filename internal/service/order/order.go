@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
+	"github.com/jonboulle/clockwork"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/romanornr/delta-works/internal/clock"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	domain "github.com/romanornr/delta-works/internal/domain/order"
 	"github.com/romanornr/delta-works/internal/id"
@@ -63,7 +63,7 @@ type Venue struct {
 type Service struct {
 	venues       map[instrument.VenueID]Venue
 	store        ports.OrderStore
-	clk          clock.Clock
+	clk          clockwork.Clock
 	log          log.Logger
 	submitBudget time.Duration
 	metrics      *Metrics
@@ -71,7 +71,7 @@ type Service struct {
 
 // New builds the service. Metrics must not be nil. submitBudget caps the
 // total time spent retrying one venue submit with the same ULID.
-func New(venues []Venue, store ports.OrderStore, clk clock.Clock, logger log.Logger, submitBudget time.Duration, metrics *Metrics) *Service {
+func New(venues []Venue, store ports.OrderStore, clk clockwork.Clock, logger log.Logger, submitBudget time.Duration, metrics *Metrics) *Service {
 	byID := make(map[instrument.VenueID]Venue, len(venues))
 	for _, v := range venues {
 		byID[v.ID] = v

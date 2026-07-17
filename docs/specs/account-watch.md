@@ -1,6 +1,6 @@
 # Spec: Account watch (foundation + read-only exchange)
 
-**Status:** delivered 2026-07-02, except live-key verification (running with real venue credentials and confirming balances flow into QuestDB), which needed API keys. Completed later with coinbase credentials.
+**Status:** delivered 2026-07-02; live verification completed later with Coinbase credentials.
 
 ## What this milestone is, and why the first milestone refuses to trade
 
@@ -39,14 +39,14 @@ The same shape returns in manual trading as the transactional outbox (ADR-0008):
 ## Package layout
 
 ```
-cmd/deltad/                 # main: builds and runs the fx app
+cmd/daemon/                 # main: builds and runs the fx app
 internal/app/               # fx composition root: what gets constructed, in which lifecycle order
 internal/config/            # koanf v2: config.yaml + DELTA__ env overrides, typed Config, Validate()
 internal/log/               # zerolog construction; exports the Logger alias (sole zerolog import point)
-internal/clock/ (+clocktest)# Clock interface + deterministic fake
+clockwork (dependency)      # maintained real clock + deterministic fake time
 internal/telemetry/         # prometheus registry; HTTP: /metrics /healthz /readyz
 internal/bus/               # in-process NATS-shaped event bus (ADR-0005)
-internal/domain/money/      # Currency, Amount (a decimal that refuses cross-currency arithmetic)  [pure]
+internal/domain/money/      # canonical Currency; owning records keep decimal quantities and currency separately  [pure]
 internal/domain/instrument/ # VenueID, Instrument{Base,Quote,VenueSymbol,Rules}                    [pure]
 internal/domain/account/    # AccountType, AccountRef, Balance, Snapshot                           [pure]
 internal/domain/marketdata/ # Ticker                                                               [pure]
@@ -68,7 +68,7 @@ Three structural rules a contributor must know, all linter-enforced where possib
 
 Two domain details worth calling out because they prevent real bugs:
 
-- `money.Amount` pairs a decimal with its currency and refuses arithmetic across currencies: adding a BTC amount to a USDT amount is a runtime error, not a silent nonsense number. The type system carries what a bare decimal cannot.
+- Monetary quantities use decimal rather than float64, and their owning records carry currency separately. This keeps accounting exact without claiming active cross-currency arithmetic.
 - `instrument.Instrument` separates our canonical view (Base, Quote) from the venue's spelling (`VenueSymbol`, since one venue says `BTCUSDT` and another `BTC-USD`), so venue quirks stay at the edge.
 
 ## Resilience: what happens when a venue misbehaves

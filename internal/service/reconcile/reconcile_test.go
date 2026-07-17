@@ -8,13 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/shopspring/decimal"
 
 	"github.com/romanornr/delta-works/internal/bus"
-	"github.com/romanornr/delta-works/internal/clock/clocktest"
-	"github.com/romanornr/delta-works/internal/config"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	domain "github.com/romanornr/delta-works/internal/domain/order"
 	"github.com/romanornr/delta-works/internal/log"
@@ -209,19 +208,15 @@ func testSnapshot(status domain.Status, filled string) domain.Snapshot {
 	}
 }
 
-func newTestService(t *testing.T, placer *fakePlacer, store *fakeStore) (*Service, *clocktest.Clock, *Metrics, *recordingBus) {
+func newTestService(t *testing.T, placer *fakePlacer, store *fakeStore) (*Service, *clockwork.FakeClock, *Metrics, *recordingBus) {
 	t.Helper()
-	logger, err := log.New(config.Log{Level: "error", Format: "json"})
-	if err != nil {
-		t.Fatal(err)
-	}
 	metrics, err := NewMetrics(prometheus.NewRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
-	clk := clocktest.New(testStart)
+	clk := clockwork.NewFakeClockAt(testStart)
 	eventBus := &recordingBus{}
-	service := New([]Venue{{ID: "bybit", Placer: placer}}, store, eventBus, clk, logger, testInterval, metrics)
+	service := New([]Venue{{ID: "bybit", Placer: placer}}, store, eventBus, clk, log.Nop(), testInterval, metrics)
 	return service, clk, metrics, eventBus
 }
 
@@ -451,21 +446,18 @@ func TestIntervalTriggersPass(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- service.Run(ctx) }()
-	waitForOpenCalls(t, placer, 1)
-
-	deadline := time.After(5 * time.Second)
-	for {
-		openCalls, _ := placer.calls()
-		if openCalls >= 2 {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatalf("OpenOrders calls = %d, want at least 2", openCalls)
-		default:
-			clk.Advance(testInterval + time.Millisecond)
-			time.Sleep(time.Millisecond)
-		}
+	waitCtx, waitCancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer waitCancel()
+	if err := clk.BlockUntilContext(waitCtx, 1); err != nil {
+		t.Fatalf("wait for reconcile interval: %v", err)
+	}
+	clk.Advance(testInterval)
+	if err := clk.BlockUntilContext(waitCtx, 1); err != nil {
+		t.Fatalf("wait for next reconcile interval: %v", err)
+	}
+	openCalls, _ := placer.calls()
+	if openCalls != 2 {
+		t.Fatalf("OpenOrders calls = %d, want 2", openCalls)
 	}
 
 	cancel()

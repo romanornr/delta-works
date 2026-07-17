@@ -12,10 +12,10 @@ import (
 
 	"github.com/cenkalti/backoff/v5"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romanornr/delta-works/internal/bus"
-	"github.com/romanornr/delta-works/internal/clock"
 	"github.com/romanornr/delta-works/internal/domain/account"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	"github.com/romanornr/delta-works/internal/exchange"
@@ -42,7 +42,7 @@ type Service struct {
 	series      ports.SeriesWriter
 	checkpoints ports.CheckpointStore
 	bus         bus.Bus
-	clk         clock.Clock
+	clk         clockwork.Clock
 	log         log.Logger
 	interval    time.Duration
 	targets     []Target
@@ -56,7 +56,7 @@ func New(
 	series ports.SeriesWriter,
 	checkpoints ports.CheckpointStore,
 	eventBus bus.Bus,
-	clk clock.Clock,
+	clk clockwork.Clock,
 	logger log.Logger,
 	interval time.Duration,
 	targets []Target,
@@ -101,7 +101,7 @@ func (s *Service) pollLoop(ctx context.Context, t Target) error {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C():
+		case <-ticker.Chan():
 			if err := s.snapshot(ctx, t); err != nil {
 				return err
 			}
