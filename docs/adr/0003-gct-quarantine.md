@@ -1,6 +1,6 @@
 # 0003: gocryptotrader quarantined behind ports
 
-**Status:** accepted (2026-07-02)
+**Status:** accepted (2026-07-02); partially superseded by 0010 (compound `ports.Exchange` and capability-erasing resilience wrappers)
 
 ## Background: the dependency problem this solves
 

@@ -20,6 +20,7 @@ import (
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
 	orderservice "github.com/romanornr/delta-works/internal/service/order"
+	"github.com/romanornr/delta-works/internal/venue"
 )
 
 const testInterval = 30 * time.Second
@@ -39,6 +40,17 @@ type fakeOrderResult struct {
 	snapshot domain.Snapshot
 	err      error
 }
+
+type fakeVenue struct {
+	id     instrument.VenueID
+	placer ports.OrderPlacer
+}
+
+func (v fakeVenue) ID() instrument.VenueID { return v.id }
+
+func (v fakeVenue) Orders() (ports.OrderPlacer, bool) { return v.placer, v.placer != nil }
+
+func (fakeVenue) PrivateEvents() (ports.PrivateStreamer, bool) { return nil, false }
 
 func (*fakePlacer) PlaceOrder(context.Context, domain.Request) (domain.Ack, error) {
 	return domain.Ack{}, nil
@@ -206,7 +218,7 @@ func newTestService(t *testing.T, placer *fakePlacer, store *fakeStore) (*Servic
 	}
 	clk := clockwork.NewFakeClockAt(testStart)
 	eventBus := &recordingBus{}
-	service := New([]Venue{{ID: "bybit", Placer: placer}}, store, store, eventBus, clk, log.Nop(), testInterval, metrics)
+	service := New([]venue.OrderEntry{fakeVenue{id: "bybit", placer: placer}}, store, store, eventBus, clk, log.Nop(), testInterval, metrics)
 	return service, clk, metrics, eventBus
 }
 

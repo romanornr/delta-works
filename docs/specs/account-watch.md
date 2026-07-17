@@ -52,15 +52,15 @@ internal/domain/account/    # AccountType, AccountRef, Balance, Snapshot        
 internal/domain/marketdata/ # Ticker                                                               [pure]
 internal/snapshot/          # UUID-backed checkpoint model, outside the pure domain
 internal/events/            # neutral internal subjects, payloads, and outbox delivery rows
-internal/ports/             # consumer-sized exchange, trading, and persistence behavior interfaces
-internal/adapters/gct/      # GCT engine lifecycle + port implementations; convert.go is the sole contact point
+internal/ports/             # consumer-sized venue, trading, and persistence behavior interfaces
+internal/adapters/gct/      # GCT lifecycle, port implementations, and source-verified capability support
 internal/adapters/postgres/ # pgxpool, sqlc queries, snapshot recorder/reader, migrations/ (goose)
 internal/adapters/questdb/  # ILP writer implementing separate balance and ticker series capabilities
-internal/exchange/          # Registry(VenueID -> Exchange) + rate-limit and breaker decorators
-internal/service/snapshot/  # the snapshot poller (errgroup, one goroutine per venue+account)
+internal/venue/             # deterministic capability catalog + one shared request gate per venue
+internal/service/snapshot/  # one poller per catalog-provided venue+account+reader target
 ```
 
-Why these packages and not a flatter layout: each directory is one of the seams described above. `domain` can be tested with zero setup because it imports nothing heavy. `ports` is the line adapters cannot cross upward. `adapters` can each be replaced without touching a service. `app` is the single place that knows how everything connects, so "what runs in this daemon" has exactly one answer.
+Why these packages and not a flatter layout: each directory is one of the seams described above. `domain` can be tested with zero setup because it imports nothing heavy. `ports` is the line adapters cannot cross upward. `adapters` can each be replaced without touching a service. `app` builds one sorted catalog entry per canonical venue, and services consume catalog-owned capabilities instead of reconstructing venue views. Snapshot targets carry their account reader directly, so a target derived from the catalog never performs a second registry lookup. `app` remains the single place that knows how everything connects, so "what runs in this daemon" has exactly one answer.
 
 Three structural rules a contributor must know, all linter-enforced where possible:
 
@@ -75,14 +75,16 @@ Two domain details worth calling out because they prevent real bugs:
 
 ## Resilience: what happens when a venue misbehaves
 
-Exchanges rate-limit, time out, return 5xx, and go down for maintenance, routinely, not exceptionally. Every call to a venue passes through three layers, each with one job (the full reasoning and the layer-ordering argument live in ADR-0003):
+Exchanges rate-limit, time out, return 5xx, and go down for maintenance, routinely, not exceptionally. Every synchronous venue request passes through three layers, each with one job (the full reasoning and the layer-ordering argument live in ADR-0003 and ADR-0010):
 
-```
+```text
 service retry (backoff/v5)
-  -> circuit breaker per venue (gobreaker/v2)
-    -> rate limiter (x/time/rate)
+  -> shared circuit breaker per venue (gobreaker/v2)
+    -> shared rate limiter per venue (x/time/rate)
       -> gct adapter -> venue
 ```
+
+Account, market-data, and order capabilities remain distinct, but their thin wrappers use the same limiter and breaker for a venue. An absent capability stays absent instead of appearing as a method that fails at call time. Private streams remain outside this request gate because a long-lived session does not have request semantics; reconciliation remains the correctness path for events missed by a stream.
 
 Two snapshot-specific calibrations show how the layers interact with the snapshot loop:
 

@@ -14,9 +14,6 @@ import (
 
 	"github.com/romanornr/delta-works/internal/bus"
 	"github.com/romanornr/delta-works/internal/domain/account"
-	"github.com/romanornr/delta-works/internal/domain/instrument"
-	"github.com/romanornr/delta-works/internal/domain/marketdata"
-	"github.com/romanornr/delta-works/internal/exchange"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
 	snapshotmodel "github.com/romanornr/delta-works/internal/snapshot"
@@ -25,16 +22,6 @@ import (
 type fakeExchange struct {
 	mu  sync.Mutex
 	err error
-}
-
-func (f *fakeExchange) ID() instrument.VenueID { return "bybit" }
-
-func (f *fakeExchange) Ticker(context.Context, instrument.Instrument) (marketdata.Ticker, error) {
-	return marketdata.Ticker{}, nil
-}
-
-func (f *fakeExchange) Instruments(context.Context, instrument.Type) ([]instrument.Instrument, error) {
-	return nil, nil
 }
 
 func (f *fakeExchange) Balances(context.Context, account.Type) ([]account.Balance, error) {
@@ -100,7 +87,6 @@ func TestSnapshotOrderingAndTick(t *testing.T) {
 	clk := clockwork.NewFakeClockAt(start)
 	stores := newFakeStores()
 	fake := &fakeExchange{}
-	reg := exchange.NewRegistry([]ports.Exchange{fake})
 	b := bus.NewInProc()
 	defer b.Close()
 	m, err := NewMetrics(prometheus.NewRegistry())
@@ -113,8 +99,8 @@ func TestSnapshotOrderingAndTick(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	svc := New(reg, stores, stores, b, clk, log.Nop(), time.Minute,
-		[]Target{{Venue: "bybit", Account: account.TypeSpot}}, m)
+	svc := New(stores, stores, b, clk, log.Nop(), time.Minute,
+		[]Target{{Venue: "bybit", Account: account.TypeSpot, Reader: fake}}, m)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -168,7 +154,6 @@ func TestFailedFetchRecordsFailedCheckpoint(t *testing.T) {
 	stores := newFakeStores()
 	// ErrAuth is permanent: no retry loop, immediate failed checkpoint.
 	fake := &fakeExchange{err: ports.ErrAuth}
-	reg := exchange.NewRegistry([]ports.Exchange{fake})
 	b := bus.NewInProc()
 	defer b.Close()
 	m, err := NewMetrics(prometheus.NewRegistry())
@@ -176,8 +161,8 @@ func TestFailedFetchRecordsFailedCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	svc := New(reg, stores, stores, b, clk, log.Nop(), time.Minute,
-		[]Target{{Venue: "bybit", Account: account.TypeSpot}}, m)
+	svc := New(stores, stores, b, clk, log.Nop(), time.Minute,
+		[]Target{{Venue: "bybit", Account: account.TypeSpot, Reader: fake}}, m)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -198,7 +183,7 @@ func TestFailedFetchRecordsFailedCheckpoint(t *testing.T) {
 func TestCheckpointStoreFailureStopsService(t *testing.T) {
 	clk := clockwork.NewFakeClockAt(time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC))
 	stores := &failingCheckpoints{fakeStores: newFakeStores()}
-	reg := exchange.NewRegistry([]ports.Exchange{&fakeExchange{}})
+	fake := &fakeExchange{}
 	b := bus.NewInProc()
 	defer b.Close()
 	m, err := NewMetrics(prometheus.NewRegistry())
@@ -206,8 +191,8 @@ func TestCheckpointStoreFailureStopsService(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	svc := New(reg, stores, stores, b, clk, log.Nop(), time.Minute,
-		[]Target{{Venue: "bybit", Account: account.TypeSpot}}, m)
+	svc := New(stores, stores, b, clk, log.Nop(), time.Minute,
+		[]Target{{Venue: "bybit", Account: account.TypeSpot, Reader: fake}}, m)
 
 	if err := svc.Run(context.Background()); err == nil {
 		t.Error("expected Run to fail when the checkpoint store is down")
@@ -257,9 +242,8 @@ func TestCheckpointDeadlineDoesNotReportSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target := Target{Venue: "bybit", Account: account.TypeSpot}
+	target := Target{Venue: "bybit", Account: account.TypeSpot, Reader: &fakeExchange{}}
 	svc := New(
-		exchange.NewRegistry([]ports.Exchange{&fakeExchange{}}),
 		series,
 		&deadlineCheckpoints{},
 		eventBus,

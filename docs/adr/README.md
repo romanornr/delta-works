@@ -24,3 +24,4 @@ File naming is `NNNN-title.md`. Each ADR opens with a **Status** line and then e
 | [0007](0007-connectrpc-control-plane.md) | ConnectRPC control plane | one protobuf contract serves gRPC, gRPC-Web and curl-able JSON on the same endpoint; every client goes through it, nothing bypasses it |
 | [0008](0008-transactional-outbox.md) | Transactional outbox | order events are written to the database in the same transaction as the state change, and a relay delivers them to the bus; kills the dual-write lost-event problem |
 | [0009](0009-model-ownership-consumer-sized-ports.md) | Model ownership and consumer-sized ports | models live with the capability that gives them meaning; each consumer depends only on the adapter behavior it uses |
+| [0010](0010-venue-catalog-shared-resilience-gate.md) | Venue catalog and shared resilience gate | one deterministic entry preserves optional capabilities while every synchronous capability for a venue shares one limiter and breaker |

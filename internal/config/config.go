@@ -162,14 +162,3 @@ func (v Venue) validate(name string) []error {
 	}
 	return errs
 }
-
-// EnabledVenues returns the names of venues with enabled: true.
-func (c Config) EnabledVenues() []string {
-	var names []string
-	for name, v := range c.Venues {
-		if v.Enabled {
-			names = append(names, name)
-		}
-	}
-	return names
-}

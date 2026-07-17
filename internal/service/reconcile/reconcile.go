@@ -19,16 +19,11 @@ import (
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
 	orderservice "github.com/romanornr/delta-works/internal/service/order"
+	"github.com/romanornr/delta-works/internal/venue"
 )
 
-// Venue is one venue the loop reconciles.
-type Venue struct {
-	ID     instrument.VenueID
-	Placer ports.OrderPlacer
-}
-
 type venueLoop struct {
-	Venue
+	venue.OrderEntry
 	kick        chan struct{}
 	lastOrphans map[string]struct{}
 }
@@ -49,7 +44,7 @@ type Service struct {
 
 // New builds the reconciliation service. Metrics must not be nil.
 func New(
-	venues []Venue,
+	venues []venue.OrderEntry,
 	orders ports.OrderReconcileStore,
 	events ports.OrderEventStore,
 	b bus.Bus,
@@ -61,7 +56,7 @@ func New(
 	loops := make([]*venueLoop, 0, len(venues))
 	for _, v := range venues {
 		loops = append(loops, &venueLoop{
-			Venue:       v,
+			OrderEntry:  v,
 			kick:        make(chan struct{}, 1),
 			lastOrphans: make(map[string]struct{}),
 		})
@@ -101,7 +96,7 @@ func (s *Service) handleReconnect(_ context.Context, event bus.Event) {
 		return
 	}
 	for _, v := range s.venues {
-		if v.ID != venue {
+		if v.ID() != venue {
 			continue
 		}
 		select {
@@ -137,12 +132,13 @@ func passError(ctx context.Context, err error) error {
 
 func (s *Service) pass(ctx context.Context, v *venueLoop) error {
 	start := s.clk.Now()
-	venueOrders, err := v.Placer.OpenOrders(ctx)
+	placer, _ := v.Orders()
+	venueOrders, err := placer.OpenOrders(ctx)
 	if err != nil {
-		s.log.Error().Str("venue", string(v.ID)).Err(err).Msg("open orders failed")
+		s.log.Error().Str("venue", string(v.ID())).Err(err).Msg("open orders failed")
 		return nil
 	}
-	local, err := s.orders.ListActiveOrders(ctx, v.ID)
+	local, err := s.orders.ListActiveOrders(ctx, v.ID())
 	if err != nil {
 		return fmt.Errorf("reconcile store: list active orders: %w", err)
 	}
@@ -156,7 +152,7 @@ func (s *Service) pass(ctx context.Context, v *venueLoop) error {
 	localActive := make(map[domain.ClientOrderID]struct{}, len(local))
 	for _, lo := range local {
 		localActive[lo.ClientOrderID] = struct{}{}
-		if err := s.reconcileLocal(ctx, v.Venue, lo, venueByClient); err != nil {
+		if err := s.reconcileLocal(ctx, v.OrderEntry, lo, venueByClient); err != nil {
 			return err
 		}
 	}
@@ -167,13 +163,13 @@ func (s *Service) pass(ctx context.Context, v *venueLoop) error {
 	}
 	v.lastOrphans = currentOrphans
 	finished := s.clk.Now()
-	s.metrics.observeSuccess(v.ID, finished.Sub(start), finished, orphans)
+	s.metrics.observeSuccess(v.ID(), finished.Sub(start), finished, orphans)
 	return nil
 }
 
 func (s *Service) reconcileLocal(
 	ctx context.Context,
-	v Venue,
+	v venue.OrderEntry,
 	lo domain.Record,
 	venueByClient map[domain.ClientOrderID]domain.Snapshot,
 ) error {
@@ -186,7 +182,7 @@ func (s *Service) reconcileLocal(
 		if lo.Status == domain.StatusPending || adoptVenueOrderID {
 			kind = "adopted"
 		}
-		return s.applyAndCount(ctx, v.ID, snap, kind, "")
+		return s.applyAndCount(ctx, v.ID(), snap, kind, "")
 	}
 	if lo.Status == domain.StatusPending {
 		return s.reconcilePending(ctx, v, lo)
@@ -194,26 +190,27 @@ func (s *Service) reconcileLocal(
 	return s.reconcileMissingActive(ctx, v, lo)
 }
 
-func (s *Service) reconcilePending(ctx context.Context, v Venue, lo domain.Record) error {
+func (s *Service) reconcilePending(ctx context.Context, v venue.OrderEntry, lo domain.Record) error {
 	if s.clk.Now().Sub(lo.CreatedAt) < 2*s.interval {
 		return nil
 	}
 	if lo.VenueOrderID == "" {
-		s.unresolvedSubmit(v.ID, lo, nil)
+		s.unresolvedSubmit(v.ID(), lo, nil)
 		return nil
 	}
-	snap, err := v.Placer.GetOrder(ctx, storedRef(lo))
+	placer, _ := v.Orders()
+	snap, err := placer.GetOrder(ctx, storedRef(lo))
 	switch {
 	case errors.Is(err, ports.ErrNotFound):
-		s.unresolvedSubmit(v.ID, lo, err)
+		s.unresolvedSubmit(v.ID(), lo, err)
 		return nil
 	case err != nil:
-		s.log.Warn().Str("venue", string(v.ID)).
+		s.log.Warn().Str("venue", string(v.ID())).
 			Str("client_order_id", string(lo.ClientOrderID)).Err(err).
 			Msg("pending order lookup failed")
 		return nil
 	default:
-		return s.applyAndCount(ctx, v.ID, withLocalRef(snap, lo), "adopted", "")
+		return s.applyAndCount(ctx, v.ID(), withLocalRef(snap, lo), "adopted", "")
 	}
 }
 
@@ -226,15 +223,16 @@ func (s *Service) unresolvedSubmit(venue instrument.VenueID, lo domain.Record, e
 	s.metrics.observeDiff(venue, "unresolved_submit")
 }
 
-func (s *Service) reconcileMissingActive(ctx context.Context, v Venue, lo domain.Record) error {
-	snap, err := v.Placer.GetOrder(ctx, storedRef(lo))
+func (s *Service) reconcileMissingActive(ctx context.Context, v venue.OrderEntry, lo domain.Record) error {
+	placer, _ := v.Orders()
+	snap, err := placer.GetOrder(ctx, storedRef(lo))
 	if err != nil {
-		s.log.Error().Str("venue", string(v.ID)).
+		s.log.Error().Str("venue", string(v.ID())).
 			Str("client_order_id", string(lo.ClientOrderID)).Err(err).
 			Msg("active order lookup failed")
 		return nil
 	}
-	return s.applyAndCount(ctx, v.ID, withLocalRef(snap, lo), "closed", "")
+	return s.applyAndCount(ctx, v.ID(), withLocalRef(snap, lo), "closed", "")
 }
 
 // withLocalRef restores our identity keys on a point-lookup snapshot; some
@@ -261,7 +259,7 @@ func (s *Service) reconcileOrphans(
 		if _, ok := localActive[clientID]; clientID != "" && ok {
 			continue
 		}
-		orphan, err := s.isOrphan(ctx, v.ID, snap)
+		orphan, err := s.isOrphan(ctx, v.ID(), snap)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -269,12 +267,12 @@ func (s *Service) reconcileOrphans(
 			continue
 		}
 		count++
-		s.metrics.observeDiff(v.ID, "orphan")
+		s.metrics.observeDiff(v.ID(), "orphan")
 		current[snap.Ref.VenueOrderID] = struct{}{}
 		if _, reported := v.lastOrphans[snap.Ref.VenueOrderID]; reported {
 			continue
 		}
-		if err := s.publishOrphan(ctx, v.ID, snap); err != nil {
+		if err := s.publishOrphan(ctx, v.ID(), snap); err != nil {
 			return 0, nil, err
 		}
 	}
