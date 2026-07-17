@@ -5,53 +5,40 @@ import (
 	"errors"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/romanornr/delta-works/internal/domain/account"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	"github.com/romanornr/delta-works/internal/domain/marketdata"
 	"github.com/romanornr/delta-works/internal/domain/order"
+	"github.com/romanornr/delta-works/internal/events"
+	"github.com/romanornr/delta-works/internal/snapshot"
 )
 
 // ErrNotFound is returned by stores when a record does not exist.
 var ErrNotFound = errors.New("not found")
 
-// SeriesWriter appends time-series observations (QuestDB). This data is
-// analytics, never accounting truth (ADR-0004).
-type SeriesWriter interface {
+// BalanceSeriesWriter appends analytics-only balance rows and durably flushes them (ADR-0004).
+type BalanceSeriesWriter interface {
 	WriteBalanceSnapshot(ctx context.Context, s account.Snapshot) error
-	WriteTicker(ctx context.Context, t marketdata.Ticker) error
 	// Flush blocks until previously written rows are durably accepted by
 	// the store. Checkpoints must only be recorded after a successful Flush.
 	Flush(ctx context.Context) error
 }
 
-// SnapshotCheckpoint is the durable record that a balance snapshot reached
-// the time-series store. It is the Postgres-side anchor for gap detection.
-type SnapshotCheckpoint struct {
-	ID           uuid.UUID
-	Account      account.Ref
-	TakenAt      time.Time
-	BalanceCount int
-	Status       CheckpointStatus
-	Error        string
+// TickerSeriesWriter appends analytics-only ticker rows and durably flushes them (ADR-0004).
+type TickerSeriesWriter interface {
+	WriteTicker(ctx context.Context, t marketdata.Ticker) error
+	Flush(ctx context.Context) error
 }
 
-// CheckpointStatus classifies a snapshot attempt.
-type CheckpointStatus string
+// SnapshotRecorder records durable snapshot checkpoints.
+type SnapshotRecorder interface {
+	RecordSnapshot(ctx context.Context, checkpoint snapshot.Checkpoint) error
+}
 
-// Checkpoint statuses.
-const (
-	CheckpointOK     CheckpointStatus = "ok"
-	CheckpointFailed CheckpointStatus = "failed"
-)
-
-// CheckpointStore records snapshot checkpoints (Postgres).
-type CheckpointStore interface {
-	RecordSnapshot(ctx context.Context, c SnapshotCheckpoint) error
-	// LastSnapshot returns the most recent checkpoint for an account, or
-	// ErrNotFound.
-	LastSnapshot(ctx context.Context, ref account.Ref) (SnapshotCheckpoint, error)
+// SnapshotReader returns the most recent checkpoint for an account, or
+// ErrNotFound.
+type SnapshotReader interface {
+	LastSnapshot(ctx context.Context, ref account.Ref) (snapshot.Checkpoint, error)
 }
 
 // OrderCommandStore persists order commands before venue calls.
@@ -90,14 +77,6 @@ type OrderQueryStore interface {
 	ListOrders(ctx context.Context, query order.Query) ([]order.Record, error)
 }
 
-// OutboxMessage is one unpublished outbox row.
-type OutboxMessage struct {
-	ID        int64
-	Subject   string
-	Payload   []byte // jsonb
-	CreatedAt time.Time
-}
-
 // OutboxStore drains the transactional outbox (ADR-0008).
 type OutboxStore interface {
 	// PublishPending claims up to limit unpublished rows in id order,
@@ -105,7 +84,7 @@ type OutboxStore interface {
 	// transaction. A publish error aborts the batch so the rows are
 	// retried on the next poll: delivery is at-least-once. Returns the
 	// number of rows published.
-	PublishPending(ctx context.Context, limit int, publish func(OutboxMessage) error) (int, error)
+	PublishPending(ctx context.Context, limit int, publish func(events.OutboxMessage) error) (int, error)
 	// DeletePublishedBefore removes rows published before cutoff and
 	// returns how many were deleted.
 	DeletePublishedBefore(ctx context.Context, cutoff time.Time) (int64, error)

@@ -19,6 +19,7 @@ import (
 	"github.com/romanornr/delta-works/internal/exchange"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
+	snapshotmodel "github.com/romanornr/delta-works/internal/snapshot"
 )
 
 type fakeExchange struct {
@@ -47,7 +48,7 @@ func (f *fakeExchange) Balances(context.Context, account.Type) ([]account.Balanc
 
 type call struct {
 	kind string // "write", "flush", "checkpoint"
-	c    ports.SnapshotCheckpoint
+	c    snapshotmodel.Checkpoint
 }
 
 type fakeStores struct {
@@ -70,20 +71,14 @@ func (f *fakeStores) WriteBalanceSnapshot(_ context.Context, _ account.Snapshot)
 	return nil
 }
 
-func (f *fakeStores) WriteTicker(context.Context, marketdata.Ticker) error { return nil }
-
 func (f *fakeStores) Flush(context.Context) error {
 	f.add(call{kind: "flush"})
 	return nil
 }
 
-func (f *fakeStores) RecordSnapshot(_ context.Context, c ports.SnapshotCheckpoint) error {
+func (f *fakeStores) RecordSnapshot(_ context.Context, c snapshotmodel.Checkpoint) error {
 	f.add(call{kind: "checkpoint", c: c})
 	return nil
-}
-
-func (f *fakeStores) LastSnapshot(context.Context, account.Ref) (ports.SnapshotCheckpoint, error) {
-	return ports.SnapshotCheckpoint{}, ports.ErrNotFound
 }
 
 func waitCall(t *testing.T, ch chan call, kind string) call {
@@ -132,7 +127,7 @@ func TestSnapshotOrderingAndTick(t *testing.T) {
 	}
 	waitCall(t, stores.ch, "flush")
 	cp := waitCall(t, stores.ch, "checkpoint")
-	if cp.c.Status != ports.CheckpointOK || cp.c.BalanceCount != 1 {
+	if cp.c.Status != snapshotmodel.StatusOK || cp.c.BalanceCount != 1 {
 		t.Errorf("checkpoint: got %+v", cp.c)
 	}
 	if cp.c.TakenAt != start {
@@ -190,7 +185,7 @@ func TestFailedFetchRecordsFailedCheckpoint(t *testing.T) {
 	go func() { done <- svc.Run(ctx) }()
 
 	cp := waitCall(t, stores.ch, "checkpoint")
-	if cp.c.Status != ports.CheckpointFailed || cp.c.Error == "" {
+	if cp.c.Status != snapshotmodel.StatusFailed || cp.c.Error == "" {
 		t.Errorf("expected failed checkpoint with error, got %+v", cp.c)
 	}
 
@@ -223,19 +218,15 @@ type failingCheckpoints struct {
 	*fakeStores
 }
 
-func (f *failingCheckpoints) RecordSnapshot(context.Context, ports.SnapshotCheckpoint) error {
+func (f *failingCheckpoints) RecordSnapshot(context.Context, snapshotmodel.Checkpoint) error {
 	return errors.New("postgres down")
 }
 
 type deadlineCheckpoints struct{}
 
-func (*deadlineCheckpoints) RecordSnapshot(ctx context.Context, _ ports.SnapshotCheckpoint) error {
+func (*deadlineCheckpoints) RecordSnapshot(ctx context.Context, _ snapshotmodel.Checkpoint) error {
 	<-ctx.Done()
 	return ctx.Err()
-}
-
-func (*deadlineCheckpoints) LastSnapshot(context.Context, account.Ref) (ports.SnapshotCheckpoint, error) {
-	return ports.SnapshotCheckpoint{}, ports.ErrNotFound
 }
 
 type recordingBus struct {

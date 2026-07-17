@@ -14,6 +14,7 @@ import (
 	"github.com/romanornr/delta-works/internal/config"
 	"github.com/romanornr/delta-works/internal/domain/account"
 	"github.com/romanornr/delta-works/internal/ports"
+	"github.com/romanornr/delta-works/internal/snapshot"
 )
 
 func startPostgres(t *testing.T) config.Postgres {
@@ -55,17 +56,17 @@ func TestMigrationsAndCheckpointRoundTrip(t *testing.T) {
 		t.Fatalf("empty table: expected ErrNotFound, got %v", err)
 	}
 
-	older := ports.SnapshotCheckpoint{
+	older := snapshot.Checkpoint{
 		ID: uuid.New(), Account: ref,
 		TakenAt:      time.Now().Add(-time.Minute).UTC().Truncate(time.Microsecond),
-		BalanceCount: 3, Status: ports.CheckpointOK,
+		BalanceCount: 3, Status: snapshot.StatusOK,
 	}
-	newer := ports.SnapshotCheckpoint{
+	newer := snapshot.Checkpoint{
 		ID: uuid.New(), Account: ref,
 		TakenAt:      time.Now().UTC().Truncate(time.Microsecond),
-		BalanceCount: 5, Status: ports.CheckpointFailed, Error: "partial venue outage",
+		BalanceCount: 5, Status: snapshot.StatusFailed, Error: "partial venue outage",
 	}
-	for _, c := range []ports.SnapshotCheckpoint{older, newer} {
+	for _, c := range []snapshot.Checkpoint{older, newer} {
 		if err := store.RecordSnapshot(ctx, c); err != nil {
 			t.Fatalf("RecordSnapshot: %v", err)
 		}
@@ -76,7 +77,7 @@ func TestMigrationsAndCheckpointRoundTrip(t *testing.T) {
 		t.Fatalf("LastSnapshot: %v", err)
 	}
 	if got.ID != newer.ID || !got.TakenAt.Equal(newer.TakenAt) ||
-		got.Status != ports.CheckpointFailed || got.Error != newer.Error || got.BalanceCount != 5 {
+		got.Status != snapshot.StatusFailed || got.Error != newer.Error || got.BalanceCount != 5 {
 		t.Errorf("LastSnapshot mismatch:\n got %+v\nwant %+v", got, newer)
 	}
 

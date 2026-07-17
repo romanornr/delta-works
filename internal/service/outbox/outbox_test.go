@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/romanornr/delta-works/internal/bus"
+	"github.com/romanornr/delta-works/internal/events"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
 )
@@ -24,7 +25,7 @@ const testInterval = 500 * time.Millisecond
 // so tests can synchronize with the relay goroutine.
 type fakeStore struct {
 	mu            sync.Mutex
-	pending       []ports.OutboxMessage
+	pending       []events.OutboxMessage
 	deletedBefore time.Time
 	err           error
 	calls         chan string
@@ -34,13 +35,13 @@ func newFakeStore() *fakeStore {
 	return &fakeStore{calls: make(chan string, 100)}
 }
 
-func (f *fakeStore) add(msgs ...ports.OutboxMessage) {
+func (f *fakeStore) add(msgs ...events.OutboxMessage) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pending = append(f.pending, msgs...)
 }
 
-func (f *fakeStore) PublishPending(_ context.Context, limit int, publish func(ports.OutboxMessage) error) (int, error) {
+func (f *fakeStore) PublishPending(_ context.Context, limit int, publish func(events.OutboxMessage) error) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	defer func() { f.calls <- "publish" }()
@@ -96,9 +97,8 @@ func waitCall(t *testing.T, ch <-chan string, want string) {
 	}
 }
 
-func msg(id int64) ports.OutboxMessage {
-	return ports.OutboxMessage{
-		ID:      id,
+func msg(id int64) events.OutboxMessage {
+	return events.OutboxMessage{
 		Subject: "order.updated",
 		Payload: []byte(fmt.Sprintf(`{"id":%d}`, id)),
 		// An hour before the fake clock's start so backlog age is nonzero.
@@ -257,7 +257,7 @@ type stuckStore struct {
 	*fakeStore
 }
 
-func (s *stuckStore) PublishPending(context.Context, int, func(ports.OutboxMessage) error) (int, error) {
+func (s *stuckStore) PublishPending(context.Context, int, func(events.OutboxMessage) error) (int, error) {
 	s.calls <- "publish"
 	return 0, nil
 }

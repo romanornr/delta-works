@@ -19,14 +19,17 @@ import (
 	"github.com/romanornr/delta-works/internal/ports"
 )
 
-// Writer implements ports.SeriesWriter over one ILP line sender. The sender
-// is not safe for concurrent use, so all writes are serialized here.
+// Writer implements the balance and ticker series ports over one ILP line
+// sender. The sender is not safe for concurrent use, so writes are serialized.
 type Writer struct {
 	mu     sync.Mutex
 	sender qdb.LineSender
 }
 
-var _ ports.SeriesWriter = (*Writer)(nil)
+var (
+	_ ports.BalanceSeriesWriter = (*Writer)(nil)
+	_ ports.TickerSeriesWriter  = (*Writer)(nil)
+)
 
 // New connects a line sender from a QuestDB configuration string, e.g.
 // "http::addr=localhost:9000;".
@@ -38,8 +41,7 @@ func New(ctx context.Context, cfg config.QuestDB) (*Writer, error) {
 	return &Writer{sender: sender}, nil
 }
 
-// WriteBalanceSnapshot implements ports.SeriesWriter. decimal→float64 is
-// acceptable here only because this store is analytics (ADR-0004).
+// WriteBalanceSnapshot converts decimal to float64 only at the analytics edge (ADR-0004).
 func (w *Writer) WriteBalanceSnapshot(ctx context.Context, s account.Snapshot) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -59,7 +61,7 @@ func (w *Writer) WriteBalanceSnapshot(ctx context.Context, s account.Snapshot) e
 	return nil
 }
 
-// WriteTicker implements ports.SeriesWriter.
+// WriteTicker appends one market-data observation.
 func (w *Writer) WriteTicker(ctx context.Context, t marketdata.Ticker) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -78,7 +80,7 @@ func (w *Writer) WriteTicker(ctx context.Context, t marketdata.Ticker) error {
 	return nil
 }
 
-// Flush implements ports.SeriesWriter.
+// Flush waits until the sender has accepted its buffered rows.
 func (w *Writer) Flush(ctx context.Context) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()

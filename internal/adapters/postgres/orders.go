@@ -18,6 +18,7 @@ import (
 	"github.com/romanornr/delta-works/internal/domain/ledger"
 	"github.com/romanornr/delta-works/internal/domain/money"
 	"github.com/romanornr/delta-works/internal/domain/order"
+	"github.com/romanornr/delta-works/internal/events"
 	"github.com/romanornr/delta-works/internal/ports"
 )
 
@@ -193,7 +194,7 @@ func (s *OrderStore) persistDecision(ctx context.Context, q *sqlcgen.Queries, ro
 func (s *OrderStore) insertEventOutbox(ctx context.Context, q *sqlcgen.Queries, row sqlcgen.Order, source order.Source, ev order.Event, decision order.Decision, newFilled decimal.Decimal) error {
 	id := order.ClientOrderID(row.ClientOrderID)
 	venue := instrument.VenueID(row.Venue)
-	if err := insertOutboxJSON(ctx, q, order.SubjectUpdated, order.UpdatedPayload{
+	if err := insertOutboxJSON(ctx, q, events.SubjectOrderUpdated, events.OrderUpdatedPayload{
 		ClientOrderID: id,
 		Venue:         venue,
 		Base:          money.Currency(row.Base),
@@ -208,7 +209,7 @@ func (s *OrderStore) insertEventOutbox(ctx context.Context, q *sqlcgen.Queries, 
 	if !decision.FillDelta.IsPositive() {
 		return nil
 	}
-	return insertOutboxJSON(ctx, q, order.SubjectFilled, order.FilledPayload{
+	return insertOutboxJSON(ctx, q, events.SubjectOrderFilled, events.OrderFilledPayload{
 		ClientOrderID: id,
 		Venue:         venue,
 		Base:          money.Currency(row.Base),

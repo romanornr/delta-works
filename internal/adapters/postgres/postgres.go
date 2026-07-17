@@ -19,6 +19,7 @@ import (
 	"github.com/romanornr/delta-works/internal/domain/account"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	"github.com/romanornr/delta-works/internal/ports"
+	"github.com/romanornr/delta-works/internal/snapshot"
 )
 
 //go:embed migrations/*.sql
@@ -55,20 +56,23 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
-// CheckpointStore implements ports.CheckpointStore.
+// CheckpointStore records and reads snapshot checkpoints.
 type CheckpointStore struct {
 	q *sqlcgen.Queries
 }
 
-var _ ports.CheckpointStore = (*CheckpointStore)(nil)
+var (
+	_ ports.SnapshotRecorder = (*CheckpointStore)(nil)
+	_ ports.SnapshotReader   = (*CheckpointStore)(nil)
+)
 
 // NewCheckpointStore builds a store over the pool.
 func NewCheckpointStore(pool *pgxpool.Pool) *CheckpointStore {
 	return &CheckpointStore{q: sqlcgen.New(pool)}
 }
 
-// RecordSnapshot implements ports.CheckpointStore.
-func (s *CheckpointStore) RecordSnapshot(ctx context.Context, c ports.SnapshotCheckpoint) error {
+// RecordSnapshot stores one durable checkpoint.
+func (s *CheckpointStore) RecordSnapshot(ctx context.Context, c snapshot.Checkpoint) error {
 	return s.q.RecordSnapshot(ctx, sqlcgen.RecordSnapshotParams{
 		ID:           c.ID,
 		Venue:        string(c.Account.Venue),
@@ -80,19 +84,19 @@ func (s *CheckpointStore) RecordSnapshot(ctx context.Context, c ports.SnapshotCh
 	})
 }
 
-// LastSnapshot implements ports.CheckpointStore.
-func (s *CheckpointStore) LastSnapshot(ctx context.Context, ref account.Ref) (ports.SnapshotCheckpoint, error) {
+// LastSnapshot returns the most recent checkpoint for an account.
+func (s *CheckpointStore) LastSnapshot(ctx context.Context, ref account.Ref) (snapshot.Checkpoint, error) {
 	row, err := s.q.LastSnapshot(ctx, sqlcgen.LastSnapshotParams{
 		Venue:       string(ref.Venue),
 		AccountType: string(ref.Type),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ports.SnapshotCheckpoint{}, ports.ErrNotFound
+		return snapshot.Checkpoint{}, ports.ErrNotFound
 	}
 	if err != nil {
-		return ports.SnapshotCheckpoint{}, fmt.Errorf("postgres: last snapshot: %w", err)
+		return snapshot.Checkpoint{}, fmt.Errorf("postgres: last snapshot: %w", err)
 	}
-	return ports.SnapshotCheckpoint{
+	return snapshot.Checkpoint{
 		ID: row.ID,
 		Account: account.Ref{
 			Venue: instrument.VenueID(row.Venue),
@@ -100,7 +104,7 @@ func (s *CheckpointStore) LastSnapshot(ctx context.Context, ref account.Ref) (po
 		},
 		TakenAt:      row.TakenAt,
 		BalanceCount: int(row.BalanceCount),
-		Status:       ports.CheckpointStatus(row.Status),
+		Status:       snapshot.Status(row.Status),
 		Error:        row.Error,
 	}, nil
 }

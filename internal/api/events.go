@@ -10,9 +10,8 @@ import (
 	controlv1 "github.com/romanornr/delta-works/internal/api/gen/control/v1"
 	"github.com/romanornr/delta-works/internal/bus"
 	"github.com/romanornr/delta-works/internal/domain/account"
-	"github.com/romanornr/delta-works/internal/domain/order"
+	"github.com/romanornr/delta-works/internal/events"
 	"github.com/romanornr/delta-works/internal/log"
-	"github.com/romanornr/delta-works/internal/service/reconcile"
 )
 
 // streamBuffer absorbs bursts between the bus goroutine and the stream
@@ -75,8 +74,8 @@ func (s *EventServer) toProtoEvent(e bus.Event) (*controlv1.StreamEventsResponse
 		At:      timestamppb.New(e.At),
 	}
 	switch e.Subject {
-	case order.SubjectUpdated:
-		var payload order.UpdatedPayload
+	case events.SubjectOrderUpdated:
+		var payload events.OrderUpdatedPayload
 		if !s.decodeOrderPayload(e, &payload) {
 			return nil, false
 		}
@@ -85,8 +84,8 @@ func (s *EventServer) toProtoEvent(e bus.Event) (*controlv1.StreamEventsResponse
 			Base: string(payload.Base), Quote: string(payload.Quote),
 			Status: toProtoOrderStatus(payload.Status), FilledQty: payload.FilledQty.String(),
 		}}
-	case order.SubjectFilled:
-		var payload order.FilledPayload
+	case events.SubjectOrderFilled:
+		var payload events.OrderFilledPayload
 		if !s.decodeOrderPayload(e, &payload) {
 			return nil, false
 		}
@@ -96,8 +95,8 @@ func (s *EventServer) toProtoEvent(e bus.Event) (*controlv1.StreamEventsResponse
 			Status: toProtoOrderStatus(payload.Status), FilledQty: payload.FilledQty.String(),
 			Qty: payload.Qty.String(), Price: payload.Price.String(),
 		}}
-	case reconcile.SubjectOrphan:
-		payload, ok := e.Payload.(reconcile.OrphanPayload)
+	case events.SubjectReconcileOrphan:
+		payload, ok := e.Payload.(events.ReconcileOrphanPayload)
 		if !ok {
 			s.recordMalformed(e.Subject)
 			return nil, false

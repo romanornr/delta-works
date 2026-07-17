@@ -12,15 +12,16 @@ import (
 	"github.com/romanornr/delta-works/internal/domain/account"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	"github.com/romanornr/delta-works/internal/ports"
+	"github.com/romanornr/delta-works/internal/snapshot"
 )
 
 // SnapshotServer serves control.v1.SnapshotService from the checkpoint store.
 type SnapshotServer struct {
-	store ports.CheckpointStore
+	store ports.SnapshotReader
 }
 
 // NewSnapshotServer builds the SnapshotService handler.
-func NewSnapshotServer(store ports.CheckpointStore) *SnapshotServer {
+func NewSnapshotServer(store ports.SnapshotReader) *SnapshotServer {
 	return &SnapshotServer{store: store}
 }
 
@@ -58,11 +59,11 @@ func (s *SnapshotServer) GetLastSnapshot(
 	}), nil
 }
 
-func checkpointStatus(s ports.CheckpointStatus) controlv1.CheckpointStatus {
+func checkpointStatus(s snapshot.Status) controlv1.CheckpointStatus {
 	switch s {
-	case ports.CheckpointOK:
+	case snapshot.StatusOK:
 		return controlv1.CheckpointStatus_CHECKPOINT_STATUS_OK
-	case ports.CheckpointFailed:
+	case snapshot.StatusFailed:
 		return controlv1.CheckpointStatus_CHECKPOINT_STATUS_FAILED
 	default:
 		return controlv1.CheckpointStatus_CHECKPOINT_STATUS_UNSPECIFIED

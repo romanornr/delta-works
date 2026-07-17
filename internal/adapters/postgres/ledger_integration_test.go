@@ -14,6 +14,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/romanornr/delta-works/internal/domain/order"
+	"github.com/romanornr/delta-works/internal/events"
 	"github.com/romanornr/delta-works/internal/id"
 )
 
@@ -182,7 +183,7 @@ WHERE subject='order.filled' AND payload->>'client_order_id'=$1
 ORDER BY id DESC LIMIT 1`, string(req.ClientOrderID)).Scan(&body); err != nil {
 			t.Fatalf("query fallback outbox: %v", err)
 		}
-		var payload order.FilledPayload
+		var payload events.OrderFilledPayload
 		if err := json.Unmarshal(body, &payload); err != nil {
 			t.Fatalf("decode fallback outbox: %v", err)
 		}
