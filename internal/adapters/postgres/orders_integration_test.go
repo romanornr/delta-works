@@ -15,6 +15,7 @@ import (
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	"github.com/romanornr/delta-works/internal/domain/money"
 	"github.com/romanornr/delta-works/internal/domain/order"
+	"github.com/romanornr/delta-works/internal/events"
 	"github.com/romanornr/delta-works/internal/id"
 	"github.com/romanornr/delta-works/internal/ports"
 )
@@ -354,21 +355,21 @@ func TestOutboxRoundTrip(t *testing.T) {
 	}
 
 	var subjects []string
-	published, err := outbox.PublishPending(ctx, 100, func(m ports.OutboxMessage) error {
+	published, err := outbox.PublishPending(ctx, 100, func(m events.OutboxMessage) error {
 		subjects = append(subjects, m.Subject)
 		return nil
 	})
 	if err != nil || published != 3 {
 		t.Fatalf("PublishPending = %d, err=%v; want 3", published, err)
 	}
-	want := []string{order.SubjectUpdated, order.SubjectUpdated, order.SubjectFilled}
+	want := []string{events.SubjectOrderUpdated, events.SubjectOrderUpdated, events.SubjectOrderFilled}
 	for i, s := range want {
 		if subjects[i] != s {
 			t.Fatalf("subjects = %v, want %v", subjects, want)
 		}
 	}
 
-	published, err = outbox.PublishPending(ctx, 100, func(ports.OutboxMessage) error { return nil })
+	published, err = outbox.PublishPending(ctx, 100, func(events.OutboxMessage) error { return nil })
 	if err != nil || published != 0 {
 		t.Fatalf("second PublishPending = %d, err=%v; want 0", published, err)
 	}
@@ -394,7 +395,7 @@ func TestOutboxPublishErrorKeepsRows(t *testing.T) {
 		t.Fatalf("open: %v", err)
 	}
 
-	if _, err := outbox.PublishPending(ctx, 100, func(ports.OutboxMessage) error {
+	if _, err := outbox.PublishPending(ctx, 100, func(events.OutboxMessage) error {
 		return context.Canceled
 	}); err == nil {
 		t.Fatal("PublishPending with failing publish: want error")

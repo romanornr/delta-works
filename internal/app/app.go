@@ -59,13 +59,13 @@ func New(configPath string, configExplicit bool) *fx.App {
 			),
 			newExchangeProducts,
 			newPostgres,
-			fx.Annotate(postgres.NewCheckpointStore, fx.As(new(ports.CheckpointStore))),
+			fx.Annotate(postgres.NewCheckpointStore, fx.As(new(ports.SnapshotRecorder), new(ports.SnapshotReader))),
 			fx.Annotate(postgres.NewOutboxStore, fx.As(new(ports.OutboxStore))),
 			fx.Annotate(postgres.NewOrderStore, fx.As(
 				new(ports.OrderCommandStore), new(ports.OrderEventStore),
 				new(ports.OrderReconcileStore), new(ports.OrderQueryStore),
 			)),
-			newQuestDB,
+			fx.Annotate(newQuestDB, fx.As(new(ports.BalanceSeriesWriter), new(ports.TickerSeriesWriter))),
 			fx.Annotate(postgres.NewHealth, fx.As(new(ports.HealthChecker)), fx.ResultTags(`group:"health"`)),
 			fx.Annotate(newQuestDBHealth, fx.As(new(ports.HealthChecker)), fx.ResultTags(`group:"health"`)),
 			snapshot.NewMetrics,
@@ -164,7 +164,7 @@ func newPostgres(lc fx.Lifecycle, cfg config.Config) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func newQuestDB(lc fx.Lifecycle, cfg config.Config) (ports.SeriesWriter, error) {
+func newQuestDB(lc fx.Lifecycle, cfg config.Config) (*questdb.Writer, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), startupTimeout)
 	defer cancel()
 	w, err := questdb.New(ctx, cfg.QuestDB)
@@ -182,8 +182,8 @@ func newQuestDBHealth(cfg config.Config) *questdb.Health {
 func newSnapshotService(
 	cfg config.Config,
 	registry exchange.Registry,
-	series ports.SeriesWriter,
-	checkpoints ports.CheckpointStore,
+	series ports.BalanceSeriesWriter,
+	checkpoints ports.SnapshotRecorder,
 	eventBus bus.Bus,
 	clk clockwork.Clock,
 	l log.Logger,

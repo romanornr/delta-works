@@ -13,6 +13,7 @@ import (
 	"github.com/jonboulle/clockwork"
 
 	"github.com/romanornr/delta-works/internal/bus"
+	"github.com/romanornr/delta-works/internal/events"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
 )
@@ -91,7 +92,7 @@ func (s *Service) Run(ctx context.Context) error {
 // a burst clears at publish speed instead of one batch per poll interval.
 func (s *Service) drain(ctx context.Context) error {
 	for {
-		n, err := s.store.PublishPending(ctx, s.batch, func(m ports.OutboxMessage) error {
+		n, err := s.store.PublishPending(ctx, s.batch, func(m events.OutboxMessage) error {
 			return s.bus.Publish(ctx, bus.Event{
 				Subject: m.Subject,
 				At:      m.CreatedAt,

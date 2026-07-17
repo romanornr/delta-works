@@ -16,22 +16,19 @@ import (
 	"github.com/romanornr/delta-works/internal/domain/account"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	"github.com/romanornr/delta-works/internal/ports"
+	"github.com/romanornr/delta-works/internal/snapshot"
 )
 
 type fakeCheckpointStore struct {
-	checkpoint ports.SnapshotCheckpoint
+	checkpoint snapshot.Checkpoint
 	err        error
 }
 
-func (f *fakeCheckpointStore) RecordSnapshot(context.Context, ports.SnapshotCheckpoint) error {
-	return nil
-}
-
-func (f *fakeCheckpointStore) LastSnapshot(context.Context, account.Ref) (ports.SnapshotCheckpoint, error) {
+func (f *fakeCheckpointStore) LastSnapshot(context.Context, account.Ref) (snapshot.Checkpoint, error) {
 	return f.checkpoint, f.err
 }
 
-func newTestClient(t *testing.T, store ports.CheckpointStore) controlv1connect.SnapshotServiceClient {
+func newTestClient(t *testing.T, store ports.SnapshotReader) controlv1connect.SnapshotServiceClient {
 	t.Helper()
 	eventBus := bus.NewInProc()
 	t.Cleanup(eventBus.Close)
@@ -43,12 +40,12 @@ func newTestClient(t *testing.T, store ports.CheckpointStore) controlv1connect.S
 func TestGetLastSnapshot(t *testing.T) {
 	t.Parallel()
 	takenAt := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
-	checkpoint := ports.SnapshotCheckpoint{
+	checkpoint := snapshot.Checkpoint{
 		ID:           uuid.New(),
 		Account:      account.Ref{Venue: instrument.NewVenueID("bybit"), Type: account.TypeSpot},
 		TakenAt:      takenAt,
 		BalanceCount: 3,
-		Status:       ports.CheckpointOK,
+		Status:       snapshot.StatusOK,
 	}
 
 	tests := []struct {

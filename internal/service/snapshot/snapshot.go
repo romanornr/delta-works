@@ -21,6 +21,7 @@ import (
 	"github.com/romanornr/delta-works/internal/exchange"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
+	snapshotmodel "github.com/romanornr/delta-works/internal/snapshot"
 )
 
 // SubjectTaken is published after a snapshot is durably checkpointed.
@@ -39,8 +40,8 @@ type Target struct {
 // Service polls all targets concurrently, one goroutine per target.
 type Service struct {
 	registry    exchange.Registry
-	series      ports.SeriesWriter
-	checkpoints ports.CheckpointStore
+	series      ports.BalanceSeriesWriter
+	checkpoints ports.SnapshotRecorder
 	bus         bus.Bus
 	clk         clockwork.Clock
 	log         log.Logger
@@ -53,8 +54,8 @@ type Service struct {
 // New builds the service. Metrics must not be nil.
 func New(
 	registry exchange.Registry,
-	series ports.SeriesWriter,
-	checkpoints ports.CheckpointStore,
+	series ports.BalanceSeriesWriter,
+	checkpoints ports.SnapshotRecorder,
 	eventBus bus.Bus,
 	clk clockwork.Clock,
 	logger log.Logger,
@@ -135,7 +136,7 @@ func (s *Service) snapshot(ctx context.Context, t Target) error {
 		return nil
 	}
 
-	checkpoint := ports.SnapshotCheckpoint{
+	checkpoint := snapshotmodel.Checkpoint{
 		ID:      uuid.New(),
 		Account: account.Ref{Venue: t.Venue, Type: t.Account},
 		TakenAt: takenAt,
@@ -145,7 +146,7 @@ func (s *Service) snapshot(ctx context.Context, t Target) error {
 		s.metrics.observeError(t)
 		s.log.Error().Str("venue", string(t.Venue)).Str("account", string(t.Account)).
 			Err(fetchErr).Msg("balance fetch failed")
-		checkpoint.Status = ports.CheckpointFailed
+		checkpoint.Status = snapshotmodel.StatusFailed
 		checkpoint.Error = fetchErr.Error()
 		return s.record(ctx, checkpoint)
 	}
@@ -154,7 +155,7 @@ func (s *Service) snapshot(ctx context.Context, t Target) error {
 	if err := s.writeSeries(ctx, snap); err != nil {
 		s.metrics.observeError(t)
 		s.log.Error().Str("venue", string(t.Venue)).Err(err).Msg("series write failed")
-		checkpoint.Status = ports.CheckpointFailed
+		checkpoint.Status = snapshotmodel.StatusFailed
 		checkpoint.Error = err.Error()
 		return s.record(ctx, checkpoint)
 	}
@@ -164,7 +165,7 @@ func (s *Service) snapshot(ctx context.Context, t Target) error {
 	// where data exists, so the write gets a detached bounded context.
 	recordCtx, recordCancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
 	defer recordCancel()
-	checkpoint.Status = ports.CheckpointOK
+	checkpoint.Status = snapshotmodel.StatusOK
 	checkpoint.BalanceCount = len(snap.NonZero())
 	if err := s.record(recordCtx, checkpoint); err != nil {
 		return err
@@ -189,7 +190,7 @@ func (s *Service) writeSeries(ctx context.Context, snap account.Snapshot) error 
 	return s.series.Flush(ctx)
 }
 
-func (s *Service) record(ctx context.Context, c ports.SnapshotCheckpoint) error {
+func (s *Service) record(ctx context.Context, c snapshotmodel.Checkpoint) error {
 	err := s.checkpoints.RecordSnapshot(ctx, c)
 	if err == nil || errors.Is(ctx.Err(), context.Canceled) {
 		return nil

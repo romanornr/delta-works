@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/romanornr/delta-works/internal/adapters/postgres/sqlcgen"
+	"github.com/romanornr/delta-works/internal/events"
 	"github.com/romanornr/delta-works/internal/ports"
 )
 
@@ -32,7 +33,7 @@ func NewOutboxStore(pool *pgxpool.Pool) *OutboxStore {
 // transaction. A publish error rolls the batch back for the next poll.
 // Holding the row locks across publish is safe because the in-process bus
 // never blocks (ADR-0005).
-func (s *OutboxStore) PublishPending(ctx context.Context, limit int, publish func(ports.OutboxMessage) error) (int, error) {
+func (s *OutboxStore) PublishPending(ctx context.Context, limit int, publish func(events.OutboxMessage) error) (int, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("postgres: begin outbox publish: %w", err)
@@ -50,7 +51,7 @@ func (s *OutboxStore) PublishPending(ctx context.Context, limit int, publish fun
 
 	ids := make([]int64, 0, len(rows))
 	for _, row := range rows {
-		if err := publish(ports.OutboxMessage{
+		if err := publish(events.OutboxMessage{
 			ID:        row.ID,
 			Subject:   row.Subject,
 			Payload:   row.Payload,

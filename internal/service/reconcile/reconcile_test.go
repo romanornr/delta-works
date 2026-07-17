@@ -16,6 +16,7 @@ import (
 	"github.com/romanornr/delta-works/internal/bus"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	domain "github.com/romanornr/delta-works/internal/domain/order"
+	"github.com/romanornr/delta-works/internal/events"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
 	orderservice "github.com/romanornr/delta-works/internal/service/order"
@@ -359,13 +360,13 @@ func TestOrphanPublishesOnceAcrossPasses(t *testing.T) {
 			t.Fatalf("pass: %v", err)
 		}
 	}
-	events := eventBus.events(SubjectOrphan)
-	if len(events) != 1 {
-		t.Fatalf("orphan events = %d, want 1", len(events))
+	published := eventBus.events(events.SubjectReconcileOrphan)
+	if len(published) != 1 {
+		t.Fatalf("orphan events = %d, want 1", len(published))
 	}
-	payload, ok := events[0].Payload.(OrphanPayload)
+	payload, ok := published[0].Payload.(events.ReconcileOrphanPayload)
 	if !ok || payload.VenueOrderID != "v-1" || payload.ClientOrderID != "foreign-1" {
-		t.Fatalf("orphan payload = %#v", events[0].Payload)
+		t.Fatalf("orphan payload = %#v", published[0].Payload)
 	}
 	if got := testutil.ToFloat64(metrics.orphans.WithLabelValues("bybit")); got != 1 {
 		t.Fatalf("orphans gauge = %v, want 1", got)

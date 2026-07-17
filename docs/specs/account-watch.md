@@ -50,10 +50,12 @@ internal/domain/money/      # canonical Currency; owning records keep decimal qu
 internal/domain/instrument/ # VenueID, Instrument{Base,Quote,VenueSymbol,Rules}                    [pure]
 internal/domain/account/    # AccountType, AccountRef, Balance, Snapshot                           [pure]
 internal/domain/marketdata/ # Ticker                                                               [pure]
-internal/ports/             # the hexagon boundary: exchange ports + trading ports (the manual-trading seam) + store ports
+internal/snapshot/          # UUID-backed checkpoint model, outside the pure domain
+internal/events/            # neutral internal subjects, payloads, and outbox delivery rows
+internal/ports/             # consumer-sized exchange, trading, and persistence behavior interfaces
 internal/adapters/gct/      # GCT engine lifecycle + port implementations; convert.go is the sole contact point
-internal/adapters/postgres/ # pgxpool, sqlc-generated queries, CheckpointStore, migrations/ (goose)
-internal/adapters/questdb/  # ILP LineSender wrapper implementing SeriesWriter
+internal/adapters/postgres/ # pgxpool, sqlc queries, snapshot recorder/reader, migrations/ (goose)
+internal/adapters/questdb/  # ILP writer implementing separate balance and ticker series capabilities
 internal/exchange/          # Registry(VenueID -> Exchange) + rate-limit and breaker decorators
 internal/service/snapshot/  # the snapshot poller (errgroup, one goroutine per venue+account)
 ```
@@ -63,7 +65,7 @@ Why these packages and not a flatter layout: each directory is one of the seams 
 Three structural rules a contributor must know, all linter-enforced where possible:
 
 - **Domain purity.** Production code under `internal/domain/` imports the standard library, sibling domain packages, and shopspring/decimal. Nothing else, ever. The business vocabulary (money, instruments, balances) stays free of infrastructure, so it is trivially testable and survives any adapter swap. Test files may add test-only dependencies.
-- **Everything external sits behind `internal/ports`.** Services never import an adapter. The port interfaces use only domain types, so reading a service tells you what it does, not which vendor it does it with (ADR-0003 explains the pattern in full).
+- **Everything external sits behind `internal/ports`.** Services never import an adapter. Ports express the smallest behavior each consumer uses and refer to models owned by their domain or neutral application capability rather than owning universal DTOs (ADR-0003 and ADR-0009).
 - **The trading seam was locked early.** `OrderPlacer` and `PrivateStreamer` were compiled here with no implementor, and `ClientOrderID` was declared as ours (generated locally, sent to the venue, used as the idempotency key) before any order code existed. Interfaces are cheapest to get right when nothing depends on them yet; by the time manual trading arrived, five packages already compiled against these signatures.
 
 Two domain details worth calling out because they prevent real bugs:

@@ -22,9 +22,9 @@ import (
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	"github.com/romanornr/delta-works/internal/domain/money"
 	domainorder "github.com/romanornr/delta-works/internal/domain/order"
+	"github.com/romanornr/delta-works/internal/events"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
-	"github.com/romanornr/delta-works/internal/service/reconcile"
 	"github.com/romanornr/delta-works/internal/service/snapshot"
 )
 
@@ -182,21 +182,25 @@ func TestOrderAndReconcileEventMapping(t *testing.T) {
 	t.Cleanup(eventBus.Close)
 	server := testEventServer(t, eventBus)
 	at := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC)
-	updated, _ := json.Marshal(domainorder.UpdatedPayload{ClientOrderID: "cid", Venue: "bybit", Base: "BTC", Quote: "USDT", Status: domainorder.StatusOpen, FilledQty: decimal.RequireFromString("0.4")})
-	filled, _ := json.Marshal(domainorder.FilledPayload{ClientOrderID: "cid", Venue: "bybit", Base: "BTC", Quote: "USDT", Status: domainorder.StatusPartiallyFilled, FilledQty: decimal.RequireFromString("0.4"), Qty: decimal.RequireFromString("0.4"), Price: decimal.RequireFromString("50000")})
+	updated, _ := json.Marshal(events.OrderUpdatedPayload{ClientOrderID: "cid", Venue: "bybit", Base: "BTC", Quote: "USDT", Status: domainorder.StatusOpen, FilledQty: decimal.RequireFromString("0.4")})
+	filled, _ := json.Marshal(events.OrderFilledPayload{ClientOrderID: "cid", Venue: "bybit", Base: "BTC", Quote: "USDT", Status: domainorder.StatusPartiallyFilled, FilledQty: decimal.RequireFromString("0.4"), Qty: decimal.RequireFromString("0.4"), Price: decimal.RequireFromString("50000")})
 	tests := []struct {
 		name    string
 		event   bus.Event
 		payload func(*controlv1.Event) bool
 	}{
-		{"updated", bus.Event{Subject: domainorder.SubjectUpdated, At: at, Payload: json.RawMessage(updated)}, func(e *controlv1.Event) bool {
+		{"updated", bus.Event{Subject: events.SubjectOrderUpdated, At: at, Payload: json.RawMessage(updated)}, func(e *controlv1.Event) bool {
 			return e.GetOrderUpdated().GetFilledQty() == "0.4" && e.GetOrderUpdated().GetBase() == "BTC"
 		}},
-		{"filled", bus.Event{Subject: domainorder.SubjectFilled, At: at, Payload: json.RawMessage(filled)}, func(e *controlv1.Event) bool {
+		{"filled", bus.Event{Subject: events.SubjectOrderFilled, At: at, Payload: json.RawMessage(filled)}, func(e *controlv1.Event) bool {
 			return e.GetOrderFilled().GetQty() == "0.4" && e.GetOrderFilled().GetPrice() == "50000"
 		}},
-		{"orphan", bus.Event{Subject: reconcile.SubjectOrphan, At: at, Payload: reconcile.OrphanPayload{Venue: "bybit", VenueOrderID: "v-1", ClientOrderID: "cid", Base: "BTC", Quote: "USDT"}}, func(e *controlv1.Event) bool {
-			return e.GetReconcileDiff().GetKind() == controlv1.ReconcileDiffKind_RECONCILE_DIFF_KIND_ORPHAN
+		{"orphan", bus.Event{Subject: events.SubjectReconcileOrphan, At: at, Payload: events.ReconcileOrphanPayload{Venue: "bybit", VenueOrderID: "v-1", ClientOrderID: "cid", Base: "BTC", Quote: "USDT"}}, func(e *controlv1.Event) bool {
+			payload := e.GetReconcileDiff()
+			return e.GetSubject() == events.SubjectReconcileOrphan &&
+				payload.GetKind() == controlv1.ReconcileDiffKind_RECONCILE_DIFF_KIND_ORPHAN &&
+				payload.GetVenue() == "bybit" && payload.GetVenueOrderId() == "v-1" &&
+				payload.GetClientOrderId() == "cid" && payload.GetBase() == "BTC" && payload.GetQuote() == "USDT"
 		}},
 	}
 	for _, tt := range tests {
@@ -207,13 +211,13 @@ func TestOrderAndReconcileEventMapping(t *testing.T) {
 			}
 		})
 	}
-	if _, ok := server.toProtoEvent(bus.Event{Subject: domainorder.SubjectUpdated, At: at, Payload: json.RawMessage("{")}); ok {
+	if _, ok := server.toProtoEvent(bus.Event{Subject: events.SubjectOrderUpdated, At: at, Payload: json.RawMessage("{")}); ok {
 		t.Fatal("malformed payload was not skipped")
 	}
 	if mapped, ok := server.toProtoEvent(tests[0].event); !ok || mapped.GetEvent().GetOrderUpdated() == nil {
 		t.Fatal("valid payload after malformed event was not isolated")
 	}
-	if got := testutil.ToFloat64(server.metrics.malformed.WithLabelValues(domainorder.SubjectUpdated)); got != 1 {
+	if got := testutil.ToFloat64(server.metrics.malformed.WithLabelValues(events.SubjectOrderUpdated)); got != 1 {
 		t.Fatalf("malformed counter = %v, want 1", got)
 	}
 }

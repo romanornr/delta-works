@@ -15,22 +15,11 @@ import (
 	"github.com/romanornr/delta-works/internal/bus"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
 	domain "github.com/romanornr/delta-works/internal/domain/order"
+	"github.com/romanornr/delta-works/internal/events"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
 	orderservice "github.com/romanornr/delta-works/internal/service/order"
 )
-
-// SubjectOrphan is published when a venue reports an open order we do not
-// know. Orphans are never adopted (docs/specs/manual-trading.md).
-const SubjectOrphan = "reconcile.orphan"
-
-// OrphanPayload is the bus payload for SubjectOrphan.
-type OrphanPayload struct {
-	Venue         instrument.VenueID
-	VenueOrderID  string
-	ClientOrderID domain.ClientOrderID
-	Base, Quote   string
-}
 
 // Venue is one venue the loop reconciles.
 type Venue struct {
@@ -314,9 +303,9 @@ func (s *Service) isOrphan(ctx context.Context, venue instrument.VenueID, snap d
 
 func (s *Service) publishOrphan(ctx context.Context, venue instrument.VenueID, snap domain.Snapshot) error {
 	err := s.bus.Publish(ctx, bus.Event{
-		Subject: SubjectOrphan,
+		Subject: events.SubjectReconcileOrphan,
 		At:      s.clk.Now(),
-		Payload: OrphanPayload{
+		Payload: events.ReconcileOrphanPayload{
 			Venue: venue, VenueOrderID: snap.Ref.VenueOrderID,
 			ClientOrderID: snap.Ref.ClientOrderID,
 			Base:          string(snap.Ref.Instrument.Base), Quote: string(snap.Ref.Instrument.Quote),
