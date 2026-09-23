@@ -18,7 +18,6 @@ import (
 	"github.com/romanornr/delta-works/internal/bus"
 	"github.com/romanornr/delta-works/internal/domain/account"
 	"github.com/romanornr/delta-works/internal/domain/instrument"
-	"github.com/romanornr/delta-works/internal/exchange"
 	"github.com/romanornr/delta-works/internal/log"
 	"github.com/romanornr/delta-works/internal/ports"
 	snapshotmodel "github.com/romanornr/delta-works/internal/snapshot"
@@ -35,11 +34,11 @@ const recordTimeout = 5 * time.Second
 type Target struct {
 	Venue   instrument.VenueID
 	Account account.Type
+	Reader  ports.AccountReader
 }
 
 // Service polls all targets concurrently, one goroutine per target.
 type Service struct {
-	registry    exchange.Registry
 	series      ports.BalanceSeriesWriter
 	checkpoints ports.SnapshotRecorder
 	bus         bus.Bus
@@ -53,7 +52,6 @@ type Service struct {
 
 // New builds the service. Metrics must not be nil.
 func New(
-	registry exchange.Registry,
 	series ports.BalanceSeriesWriter,
 	checkpoints ports.SnapshotRecorder,
 	eventBus bus.Bus,
@@ -64,7 +62,6 @@ func New(
 	metrics *Metrics,
 ) *Service {
 	return &Service{
-		registry:    registry,
 		series:      series,
 		checkpoints: checkpoints,
 		bus:         eventBus,
@@ -112,18 +109,13 @@ func (s *Service) pollLoop(ctx context.Context, t Target) error {
 
 // snapshot returns a non-nil error only for infrastructure failures.
 func (s *Service) snapshot(ctx context.Context, t Target) error {
-	ex, err := s.registry.Get(t.Venue)
-	if err != nil {
-		return err // a missing venue is a wiring bug, not a venue outage
-	}
-
 	start := s.clk.Now()
 	// The fetch gets its own deadline so a stalled venue call cannot eat
 	// the next tick or hold up shutdown; recording and publishing below
 	// stay on the parent context.
 	fetchCtx, cancel := context.WithTimeout(ctx, s.interval/2)
 	balances, fetchErr := backoff.Retry(fetchCtx, func() ([]account.Balance, error) {
-		bs, err := ex.Balances(fetchCtx, t.Account)
+		bs, err := t.Reader.Balances(fetchCtx, t.Account)
 		if errors.Is(err, ports.ErrAuth) || errors.Is(err, ports.ErrUnsupportedAccount) {
 			return nil, backoff.Permanent(err)
 		}
